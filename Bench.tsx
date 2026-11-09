@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import * as T from 'three';
 import {defaultEnvironment,moveEquipment,type Environment,type Item,type Layout,type Point} from './environment.mjs';
 
-type Props={reading:number;volume:number;pink:number;plume:boolean;camera:string;motion:string;act:(name:string)=>void;filled:boolean;environment?:Environment;layout?:Layout;arrange?:boolean;explore?:boolean;onLayout?:(layout:Layout)=>void};
+type Props={fullMotion?:boolean;duration?:number;onMotionEnd?:()=>void;reading:number;volume:number;pink:number;plume:boolean;camera:string;motion:string;act:(name:string)=>void;filled:boolean;environment?:Environment;layout?:Layout;arrange?:boolean;explore?:boolean;onLayout?:(layout:Layout)=>void};
 export function Bench(props:Props) {
   const mount=useRef<HTMLDivElement>(null);
   const state=useRef(props);
@@ -192,7 +192,7 @@ export function Bench(props:Props) {
     canvas.addEventListener('pointerup',up);
     canvas.addEventListener('lostpointercapture',up);
     canvas.addEventListener('wheel',wheel,{passive:false});
-    let frame=0,previous='',began=0,last=0,width=0,height=0,level=1.6,volume=0,plumeAmount=0;
+    let frame=0,previous='',age=0,last=0,width=0,height=0,level=1.6,volume=0,plumeAmount=0;
     const clear=new T.Color('#b8e2dd'), pink=new T.Color('#e02983'), goalColor=new T.Color();
     const surfaceColors={sage:new T.Color('#71988b'),slate:new T.Color('#455d69'),birch:new T.Color('#bf9b6d')};
     const look=new T.Vector3(), goal=new T.Vector3(), focus=new T.Vector3();
@@ -201,13 +201,15 @@ export function Bench(props:Props) {
       frame=requestAnimationFrame(draw);
       const s=state.current, environment=s.environment??defaultEnvironment;
       if(s.layout!==layoutVersion){layoutVersion=s.layout;if(!drag)pending=undefined;}
-      const dt=last ? (now-last)/1000 : 1;
+      const dt=last ? Math.min(now-last,34) : 1000;
       last=now;
-      const blend=reduced.matches?1:1-Math.exp(-dt*13);
-      if(s.motion!==previous){previous=s.motion;began=now;}
-      const age=now-began;
+      const animate=s.fullMotion??!reduced.matches;
+      const blend=animate?1-Math.exp(-dt*.013):1;
+      const previousAge=age;
+      if(s.motion!==previous){previous=s.motion;age=0;}
+      else if(s.motion) age+=dt;
       const progress=(duration:number)=>T.MathUtils.clamp(age/duration,0,1);
-      const arc=(duration:number)=>reduced.matches?0:Math.sin(Math.PI*progress(duration));
+      const arc=(duration:number)=>!animate?0:Math.sin(Math.PI*progress(duration));
       const preparing=s.motion.startsWith('prepare');
       const transferring=s.motion.startsWith('transfer');
       const indicating=/^(indicator|add-indicator)/.test(s.motion);
@@ -229,14 +231,15 @@ export function Bench(props:Props) {
       fill.visible=volume>.025;
       fill.scale.y=.17+volume/80;
       solution.color.lerp(goalColor.copy(clear).lerp(pink,Math.min(1,s.pink*.89)),blend*.65);
-      plumeAmount=T.MathUtils.lerp(plumeAmount,Number(s.plume),blend*.72);
+      const plumeVisible=s.plume&&(!adding||age>=375||plumeAmount>.015);
+      plumeAmount=T.MathUtils.lerp(plumeAmount,Number(plumeVisible),blend*.72);
       plume.visible=plumeAmount>.015;
       plumeMaterial.opacity=plumeAmount*.56;
       plume.scale.set(1.6-plumeAmount*.6,.30,1.6-plumeAmount*.6);
-      plume.position.x=reduced.matches?0:Math.sin(now/550)*.11;
+      plume.position.x=!animate?0:Math.sin(now/550)*.11;
       const stream=s.motion.startsWith('add:stream');
       const dropProgress=stream ? ((age-115)%150)/150 : (age-115)/260;
-      drop.visible=!reduced.matches&&adding&&age>115&&age<(stream?585:375);
+      drop.visible=animate&&adding&&age>115&&age<(stream?585:375);
       drop.position.y=1.22-.94*T.MathUtils.clamp(dropProgress,0,1)**2;
       handle.rotation.z=adding?arc(690)*1.57:0;
       const swirl=arc(820)*Number(s.motion.startsWith('swirl'));
@@ -246,7 +249,7 @@ export function Bench(props:Props) {
       vessel.position.y=Math.hypot((tilePos?.x??0)-(flaskPos?.x??0),(tilePos?.z??0)-(flaskPos?.z??0))<.53?.06:0;
       pipetteBody.position.set(transferring?-1.35*arc(900):0,transferring?1.3*arc(900):0,0);
       pipetteBody.rotation.z=transferring?-.78*arc(900):0;
-      indicatorDrop.visible=!reduced.matches&&indicating&&age>100&&age<620;
+      indicatorDrop.visible=animate&&indicating&&age>100&&age<620;
       indicatorDrop.position.set(flask.position.x,1.55-((age%240)/240)*1.25,flask.position.z);
       const eye=s.camera==='Eye level',close=s.camera==='Flask';
       if(width!==host.clientWidth||height!==host.clientHeight){
@@ -270,6 +273,7 @@ export function Bench(props:Props) {
       camera.position.lerp(goal,blend);
       look.lerp(focus,blend);camera.lookAt(look);
       renderer.render(scene,camera);
+      if(s.motion&&s.duration&&previousAge<s.duration&&age>=s.duration)s.onMotionEnd?.();
     }
 
     frame=requestAnimationFrame(draw);
@@ -278,6 +282,7 @@ export function Bench(props:Props) {
       scene.traverse(o=>{if(o instanceof T.Mesh){o.geometry.dispose();const materials=Array.isArray(o.material)?o.material:[o.material];for(const m of materials){m.map?.dispose();m.dispose();}}});
     };
   },[]);
+  useEffect(()=>{if(fallback&&props.motion)props.onMotionEnd?.();},[fallback,props.motion,props.onMotionEnd]);
   return <div className="bench" data-explore={props.explore||props.arrange||undefined} ref={mount}>
     {fallback&&<div className="fallback">3D rendering is unavailable. Use the bench controls and calibrated eye-level view.</div>}
     {props.camera==='Eye level'&&<Scale reading={props.reading}/>}

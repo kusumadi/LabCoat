@@ -103,7 +103,8 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   const [kind,setKind]=useState('practice');
   const [reading,setReading]=useState('');
   const [camera,setCamera]=useState('Bench');
-  const [motion,setMotion]=useState('');
+  const [motion,setMotion]=useState<{action:string;value?:string;duration:number;after?:string;started:number}>();
+  const [fullMotion,setFullMotion]=useState(()=>!matchMedia('(prefers-reduced-motion: reduce)').matches);
   const [flow,setFlow]=useState('stream');
   const [layout,setLayout]=useState<Layout>({});
   const [arrange,setArrange]=useState(false);
@@ -112,7 +113,8 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   const [question,setQuestion]=useState('What should I do next?');
   const [result,setResult]=useState('');
   const [unit,setUnit]=useState('mol/L');
-  const [busy,setBusy]=useState(false);
+  const [pending,setBusy]=useState(false);
+  const busy=pending||!!motion;
   async function work(task:()=>Promise<void>){
     if(busy)return;
     setBusy(true);setError('');
@@ -126,14 +128,19 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   const experiments=a.kind==='practice'&&environment.experiments&&!a.report;
   const experimentalIndicator=experiments&&!a.hasIndicator&&['initial','titrate'].includes(stage);
   const act=(action:string,value?:string)=>work(async()=>{
-    const next=await api<Attempt>('action',{id,action,value,layout:action==='add'?layout:undefined});setAttempt(next);setMotion(action+':'+(value??'')+':'+performance.now());setHint('');
+    const next=await api<Attempt>('action',{id,action,value,layout:action==='add'?layout:undefined});
+    setAttempt(next);
+    setHint('');
     if(['initial','final','repeat','reset'].includes(action))setReading('');
-    if(next.stage==='initial'||next.stage==='final')setCamera('Eye level');
+    const after=next.stage==='initial'||next.stage==='final'?'Eye level':undefined;
     if(action==='initial')setCamera('Flask');
     if(action==='repeat'||action==='reset'){setCamera('Bench');setFlow(action==='reset'&&a.index===0?'stream':'drop');}
-    const duration:Record<string,number>={prepare:450,transfer:900,indicator:620,'add-indicator':620,add:690,swirl:820,repeat:420,reset:420};
-    if(duration[action]&&!matchMedia('(prefers-reduced-motion: reduce)').matches)
-      await new Promise(resolve=>setTimeout(resolve,duration[action]));
+    const durations:Record<string,number>={prepare:700,transfer:900,indicator:720,'add-indicator':720,add:690,swirl:820,repeat:420,reset:420};
+    if(fullMotion&&durations[action]){
+      if(action==='prepare'||action==='transfer')setCamera('Bench');
+      if(['indicator','add-indicator','add','swirl'].includes(action))setCamera('Flask');
+      setMotion({action,value,duration:durations[action],after,started:performance.now()});
+    }else if(after)setCamera(after);
   });
   const pointer=(target:string)=>{
     if(a.report)return;
@@ -147,11 +154,14 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   };
   const instruction=a.config.steps.find(s=>s.action===stage)?.instruction;
   return <><div className="page-intro compact"><p className="kicker">{preview?'UNPUBLISHED PREVIEW':'PRACTICAL / 01'} · {a.kind==='mock'?'MOCK ASSESSMENT':'PRACTICE'}</p><h1>Acid–base titration</h1><p>{a.config.volume.toFixed(2)} mL unknown HCl · {a.config.base.toFixed(4)} mol/L NaOH · Phenolphthalein</p></div>
-  <div className="lab-grid"><section className="panel scene"><div className="scene-head"><div><p className="kicker">LIVE SIMULATION</p><h2>Teaching bench</h2></div><div className="camera" aria-label="Camera angle">{['Bench','Eye level','Flask'].map(v=><button key={v} aria-pressed={camera===v} onClick={()=>setCamera(v)}>{v}</button>)}</div></div>
-  <Bench environment={environment} layout={layout} arrange={arrange} explore={a.kind==='practice'} onLayout={setLayout} reading={a.meniscus} volume={a.volume} pink={a.pink} plume={a.plume} camera={camera} motion={motion} act={pointer} filled={stage!=='prepare'}/>
-  <div className="scene-foot"><span><i/> {name(a.index)}</span><span>{a.plume?'Local pink · swirl to mix':a.volume?'Flask · '+a.observation:'Flask ready'}</span></div>
+  <div className="lab-grid"><section className="panel scene"><div className="scene-head"><div><p className="kicker">LIVE SIMULATION</p><h2>Teaching bench</h2></div><div className="camera" aria-label="Camera angle">{['Bench','Eye level','Flask'].map(v=><button key={v} disabled={!!motion} aria-pressed={camera===v} onClick={()=>setCamera(v)}>{v}</button>)}</div></div>
+  <Bench fullMotion={fullMotion} duration={motion?.duration} onMotionEnd={()=>{
+    if(motion?.after)setCamera(motion.after);
+    setMotion(undefined);
+  }} environment={environment} layout={layout} arrange={arrange} explore={a.kind==='practice'} onLayout={setLayout} reading={a.meniscus} volume={a.volume} pink={a.pink} plume={a.plume} camera={camera} motion={motion?motion.action+':'+(motion.value??'')+':'+motion.started:''} act={pointer} filled={stage!=='prepare'}/>
+  <div className="scene-foot"><label><input type="checkbox" checked={fullMotion} disabled={!!motion} onChange={e=>setFullMotion(e.target.checked)}/> Full animations</label><span><i/> {name(a.index)}</span><span>{a.plume?'Local pink · swirl to mix':a.volume?'Flask · '+a.observation:'Flask ready'}</span></div>
   {a.kind==='practice'&&<div className="bench-tools">
-    {movable&&<button aria-pressed={arrange} onClick={()=>{setArrange(!arrange);if(!arrange)setCamera('Bench');}}>{arrange?'Use equipment':'Arrange equipment'}</button>}
+    {movable&&<button disabled={!!motion} aria-pressed={arrange} onClick={()=>{setArrange(!arrange);if(!arrange)setCamera('Bench');}}>{arrange?'Use equipment':'Arrange equipment'}</button>}
     <p className="layout-help">{arrange?'Drag objects to reposition them.':'Drag the bench view to orbit. Click equipment to use it.'} Shift + scroll to zoom.</p>
     {arrange&&<LayoutControls layout={layout} reset={environment.layout} onChange={setLayout}/>}
   </div>}</section>
