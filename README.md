@@ -59,3 +59,24 @@ When the lecturer enables experiments, try omitting the indicator and compare th
 In **Lecturer studio → Lab environment**, preview lighting, table height and finish, and drag equipment to define the starting layout. Choose whether students can move equipment and try experimental steps in Practice. Publishing saves these choices with the practical. Older practicals load with the default environment.
 
 Motion uses elapsed time, and burette ticks render in a single instanced draw. The app respects the system reduced-motion preference. Display smoothness depends on the browser, display refresh and GPU.
+
+## University chemical inventory and incident inbox
+
+In **Lecturer studio → Lab records**, import the university's own inventory export as JSON. The database starts with three demonstration reagents. Each batch accepts up to 2,000 rows. Use the same institutional ID to update an entry. For example:
+
+```json
+[
+  {
+    "id": "stock-0042",
+    "name": "Copper(II) sulfate",
+    "formula": "CuSO4",
+    "aliases": "copper sulfate|copper sulphate"
+  }
+]
+```
+
+The optional `cas` and `sds` fields hold a CAS number and the supplier's HTTPS safety data sheet URL. Import the institution's approved product records and SDS links. LabCoat does not infer hazards or compatibility from a chemical name. Both inventory and incidents persist in `.labcoat/records.sqlite`. The inventory view shows the first 100 matches for each search.
+
+Select **Other experiment** before drafting a different procedure. LabCoat checks names, aliases, formulas and CAS numbers against the imported inventory, then blocks publication until a compatible simulation exists. The only implemented model is HCl–NaOH titration with phenolphthalein. Inventory matching is lexical and requires lecturer review. A chemistry database cannot substitute for a validated procedure and reaction model.
+
+The **Student incident inbox** refreshes automatically. The simulator records concrete observations such as an off-centre flask, an observed overshoot, an omitted indicator, an inaccurate reading, or a calculation mismatch. Repeat observations within the same run are deduplicated. Deliberate practice may generate alerts, and lecturer previews are excluded. **Suggest coaching** optionally sends the incident category, mode and evidence to the live AI. Without a key it gives scripted guidance. The inbox uses anonymous attempt references and is local to the running lab. University deployment requires authenticated student and lecturer accounts and a policy for access and retention. The local demo uses an in-app inbox as its notification channel.

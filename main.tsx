@@ -1,11 +1,12 @@
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Bench} from './Bench';
+import {LabRecords,type ChemicalMatch} from './LabRecords';
 import {LayoutControls} from './LayoutControls';
 import {aligned,defaultEnvironment,type Environment,type Layout} from './environment.mjs';
 import './style.css';
 
-type Config={environment:Environment;volume:number;base:number;low:number;high:number;tolerance:number;hints:string;steps:{source:string;action:string;warning:string}[]};
+type Config={experiment?:string;environment:Environment;volume:number;base:number;low:number;high:number;tolerance:number;hints:string;steps:{source:string;action:string;warning:string}[]};
 type PublicConfig=Pick<Config,'volume'|'base'|'tolerance'|'hints'|'environment'>&{steps:{action:string;instruction:string}[]};
 type Attempt={config:PublicConfig;kind:string;index:number;stage:string;reading:number;meniscus:number;volume:number;observation:string;pink:number;plume:boolean;hasIndicator:boolean;held:boolean;readyToObserve:boolean;notes:{index:number;initial:number|null;final:number|null;titre:number|null;outcome?:string}[];report?:{group:number[];expected:number;entered:number;unit:string;agrees:boolean;trials:{index:number;actual:number;outcome:string;readingError:boolean}[]}};
 const labels:Record<string,string>={prepare:'Prepare burette',transfer:'Transfer acid',indicator:'Add indicator',initial:'Read initial level',titrate:'Titrate and swirl',final:'Read final level',done:'Review trial'};
@@ -33,6 +34,9 @@ function Home({published}:{published:boolean}){
 }
 function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
   const [handout,setHandout]=useState('');
+  const [experiment,setExperiment]=useState('hcl-naoh');
+  const [matches,setMatches]=useState<ChemicalMatch[]>([]);
+  const [blocked,setBlocked]=useState('');
   const [catalogue,setCatalogue]=useState<Record<string,string[]>>({});
   const [config,setConfig]=useState<Config>();
   const [busy,setBusy]=useState(false);
@@ -44,15 +48,28 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
     setBusy(true);setNotice('');setError('');
     try{await task();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
-  useEffect(()=>{api<{config?:Config;catalogue:Record<string,string[]>}>('approved',{}).then(data=>{setCatalogue(data.catalogue);if(data.config){setConfig(data.config);setHandout(data.config.steps.map(s=>s.source).join('\n'));}}).catch(e=>setError(e.message));},[]);
-  const draft=()=>work(async()=>{setConfig((await api<{config:Config}>('draft',{handout})).config);setDirty(false);});
+  useEffect(()=>{api<{config?:Config;catalogue:Record<string,string[]>}>('approved',{}).then(data=>{setCatalogue(data.catalogue);if(data.config){setConfig(data.config);setExperiment(data.config.experiment??'hcl-naoh');setHandout(data.config.steps.map(s=>s.source).join('\n'));}}).catch(e=>setError(e.message));},[]);
+  async function reviewHandout(text:string,kind:string){
+    setDirty(true);
+    const data=await api<{config?:Config;chemicals:ChemicalMatch[];blocked?:string}>('draft',{handout:text,experiment:kind});
+    setConfig(data.config);setMatches(data.chemicals);setBlocked(data.blocked??'');setDirty(false);
+  }
+  const draft=()=>work(()=>reviewHandout(handout,experiment));
   return <><div className="page-intro"><p className="kicker">PRACTICAL AUTHORING / 01</p><h1>Lecturer studio</h1><p>Map your procedure to the teaching bench, review its settings and publish it for students.</p></div>
-  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button><Student published preview={preview}/></>:<div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Paste one instruction per line, or load the editable demonstration procedure.</p>
-    <button disabled={busy} onClick={()=>work(async()=>{const sample=await api<{handout:string}>('sample',{});setHandout(sample.handout);setConfig((await api<{config:Config}>('draft',sample)).config);setDirty(false);})}>Load demonstration procedure</button>
+  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button><Student published preview={preview}/></>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Paste one instruction per line, or load the editable demonstration procedure.</p>
+    <button disabled={busy} onClick={()=>work(async()=>{
+      const sample=await api<{handout:string;experiment:string}>('sample',{});
+      setHandout(sample.handout);setExperiment(sample.experiment);await reviewHandout(sample.handout,sample.experiment);
+    })}>Load demonstration procedure</button>
+    <label className="field">Experiment type<select value={experiment} onChange={e=>{setExperiment(e.target.value);setDirty(true);}}>
+      <option value="hcl-naoh">HCl–NaOH titration</option><option value="other">Other experiment</option>
+    </select></label>
     <label className="field">Handout text<textarea rows={13} value={handout} onChange={e=>{setHandout(e.target.value);setDirty(true);}} placeholder="Paste your practical instructions here…"/></label>
     <button className="primary" disabled={busy||!handout.trim()} onClick={draft}>Draft mappings</button> <small>{mode}</small>
     </section><section className="panel"><p className="kicker">02 / REVIEW</p><h2>Bench mappings</h2>
-    {!config?<p>Draft a procedure to review its equipment and actions.</p>:<><p>Review the source beside each bench action. Selecting an action confirms that you have resolved the warning.</p>
+    {!dirty&&blocked&&<p className="warning" role="status">{blocked}</p>}
+    {!dirty&&matches.length>0&&<p>Inventory matches · {matches.map(c=>c.name+(c.simulated?'':' (inventory only)')).join(', ')}</p>}
+    {!config?<p>{blocked?'Publication requires a compatible simulation model.':'Draft a procedure to review its equipment and actions.'}</p>:<><p>Review the source beside each bench action. Selecting an action confirms that you have resolved the warning.</p>
     <ol className="mapping">{config.steps.map((s,i)=><li key={i}><div>{s.source}{s.warning&&<small className="warning">{s.warning}</small>}</div><select aria-label={'Action for instruction '+(i+1)} value={s.action} onChange={e=>{const action=e.target.value;setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,action,warning:action?'':'Select a supported action.'}:x)});}}><option value="">Unresolved</option>{steps.map(key=><option key={key} value={key}>{labels[key]}</option>)}</select>{s.action&&<small>{catalogue[s.action]?.join(' · ')}</small>}{s.warning&&s.action&&<button onClick={()=>setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,warning:''}:x)})}>Confirm mapping</button>}</li>)}</ol>
     <h2>Practical settings</h2><div className="fields">
     <label className="field">Aliquot (mL)<select value={config.volume} onChange={e=>setConfig({...config,volume:+e.target.value})}>{[5,10,20,25].map(v=><option key={v}>{v}</option>)}</select></label>
@@ -61,7 +78,7 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
     <EnvironmentEditor value={config.environment} onChange={environment=>setConfig({...config,environment})}/>
     {dirty&&<p className="warning">Draft mappings again after editing the handout.</p>}
     <div className="row"><button disabled={busy||dirty} onClick={()=>setPreview(config)}>Student preview</button><button className="primary" disabled={busy||dirty||config.steps.some(s=>s.warning||!s.action)} onClick={()=>work(async()=>{await api('publish',config);publish();setNotice('Practical published.');})}>Publish practical</button></div></>}
-    {error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status">{notice} <a href="/student">Open student bench →</a></p>}</section></div>}</>;
+    {error&&<p role="alert" className="error">{error}</p>}{notice&&<p role="status">{notice} <a href="/student">Open student bench →</a></p>}</section></div><LabRecords api={api}/></>}</>;
 }
 function EnvironmentEditor({value,onChange}:{value:Environment;onChange:(environment:Environment)=>void}){
   const update=(change:Partial<Environment>)=>onChange({...value,...change});
@@ -90,7 +107,6 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   const [flow,setFlow]=useState('stream');
   const [layout,setLayout]=useState<Layout>({});
   const [arrange,setArrange]=useState(false);
-  const [notice,setNotice]=useState('');
   const [error,setError]=useState('');
   const [hint,setHint]=useState('');
   const [question,setQuestion]=useState('What should I do next?');
@@ -103,20 +119,14 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
     try{await task();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
   const start=()=>work(async()=>{const data=await api<Attempt&{id:string}>('start',{kind,preview});setId(data.id);setAttempt(data);setLayout(data.config.environment.layout);});
-  if(!attempt)return <div className="start panel"><p className="kicker">{preview?'UNPUBLISHED PREVIEW':'STUDENT BENCH / 01'}</p><h1>Acid–base titration</h1><p>Determine the concentration of an unknown hydrochloric acid sample using standardised sodium hydroxide.</p>{published?<><label className="field">Attempt mode<select value={kind} onChange={e=>setKind(e.target.value)}><option value="practice">Practice</option><option value="mock">Mock assessment</option></select></label><button className="primary" disabled={busy} onClick={start}>Start attempt →</button></>:<p>Waiting for a published practical. <a href="/lecturer">Open lecturer studio</a></p>}{error&&<p className="error" role="alert">{error}</p>}</div>;
+  if(!attempt)return <div className="start panel"><p className="kicker">{preview?'UNPUBLISHED PREVIEW':'STUDENT BENCH / 01'}</p><h1>Acid–base titration</h1><p>Determine the concentration of an unknown hydrochloric acid sample using standardised sodium hydroxide.</p>{!preview&&<p>LabCoat sends selected technique observations to the lecturer’s incident inbox.</p>}{published?<><label className="field">Attempt mode<select value={kind} onChange={e=>setKind(e.target.value)}><option value="practice">Practice</option><option value="mock">Mock assessment</option></select></label><button className="primary" disabled={busy} onClick={start}>Start attempt →</button></>:<p>Waiting for a published practical. <a href="/lecturer">Open lecturer studio</a></p>}{error&&<p className="error" role="alert">{error}</p>}</div>;
   const a=attempt, stage=a.stage;
   const environment=a.config.environment;
   const movable=a.kind==='practice'&&environment.movable;
   const experiments=a.kind==='practice'&&environment.experiments&&!a.report;
-  const docked=aligned(layout);
   const experimentalIndicator=experiments&&!a.hasIndicator&&['initial','titrate'].includes(stage);
   const act=(action:string,value?:string)=>work(async()=>{
-    setNotice('');
-    if(action==='add'&&!docked){
-      setNotice('The flask is away from the burette tip. Move it underneath before opening the stopcock.');
-      return;
-    }
-    const next=await api<Attempt>('action',{id,action,value});setAttempt(next);setMotion(action+':'+(value??'')+':'+performance.now());setHint('');
+    const next=await api<Attempt>('action',{id,action,value,layout:action==='add'?layout:undefined});setAttempt(next);setMotion(action+':'+(value??'')+':'+performance.now());setHint('');
     if(['initial','final','repeat','reset'].includes(action))setReading('');
     if(next.stage==='initial'||next.stage==='final')setCamera('Eye level');
     if(action==='initial')setCamera('Flask');
@@ -156,7 +166,6 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   {(stage==='done'||(stage==='titrate'&&a.kind==='practice'&&a.held&&a.observation==='deep pink'))&&<button disabled={busy} onClick={()=>act('repeat')}>{stage==='done'?'Start repeat trial':'Discard and retry'}</button>}
   {experiments&&!['prepare','done'].includes(stage)&&<div className="reset-row"><button disabled={busy} onClick={()=>act('reset')}>Restart this trial</button></div>}
   </div>}
-  {notice&&<p className="warning" role="status">{notice}</p>}
   {error&&<p className="error" role="alert">{error}</p>}
   {!a.report&&a.config.hints!=='off'&&(a.config.hints==='both'||a.kind==='practice')&&<div className="hint"><label className="field">Question for the demonstrator<input value={question} maxLength={500} onChange={e=>setQuestion(e.target.value)}/></label><button disabled={busy} onClick={()=>work(async()=>{const h=await api<{reply:string;mode:string}>('hint',{id,question});setHint(h.mode+' · '+h.reply);})}>Ask the demonstrator</button>{hint&&<p role="status">{hint}</p>}</div>}
   </section></div>
