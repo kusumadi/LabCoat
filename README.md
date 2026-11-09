@@ -49,3 +49,13 @@ The 3D meshes, scales, bottle labels and styling are generated in this repositor
 The automated checks cover 25.00 mL equivalence, indicator onset, overshoot, retry state, non-zero initial readings, independent student entries, configuration validation, concordance and unit conversion. The in-app browser flow published the example with a smaller fixed aliquot for a short test, restarted the server, overshot and discarded the rough run, recorded two faint-pink 1.00 mL repeats, and submitted 20 mmol/L. It also verified the home and direct lecturer/student routes, mock preview launch, and different scripted answers to the same question at two stages. The default demonstration settings were restored after testing. Live API calls were outside this verification.
 
 
+
+## Free practice and the lab environment
+
+In Practice, drag the bench view to orbit and use Shift + scroll to zoom. Select **Arrange equipment** to drag the table, burette assembly, flask, tile, pipette or reagent bottles. The same panel offers directional buttons. The table carries the equipment with it. A misaligned flask prevents dosing until you move it underneath the tip. **Place flask under tip** and **Reset layout** are available in the arrangement panel. Positions are bounded to the teaching bench.
+
+When the lecturer enables experiments, try omitting the indicator and compare the clear solution to its appearance after adding indicator. **Restart this trial** resets the current glassware and entries while preserving completed trials, the unknown sample and your layout. Mock assessments use the published starting layout and the guided procedure.
+
+In **Lecturer studio → Lab environment**, preview lighting, table height and finish, and drag equipment to define the starting layout. Choose whether students can move equipment and try experimental steps in Practice. Publishing saves these choices with the practical. Older practicals load with the default environment.
+
+Motion uses elapsed time, and burette ticks render in a single instanced draw. The app respects the system reduced-motion preference. Display smoothness depends on the browser, display refresh and GPU.

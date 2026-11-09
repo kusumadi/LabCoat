@@ -1,3 +1,4 @@
+import {aligned, defaultEnvironment, validateEnvironment} from './environment.mjs';
 export const actions = {
   prepare: 'Condition the burette with NaOH, fill it, and clear the tip into waste.',
   transfer: 'Condition the volumetric pipette with HCl and use a filler to transfer the configured aliquot to a clean conical flask.',
@@ -14,7 +15,7 @@ export const catalogue = {
 };
 export const sequence = Object.keys(actions);
 export const handout = Object.values(actions).join('\n');
-export const sample = { volume:25, base:0.1, low:0.099, high:0.101, tolerance:0.10, hints:'both' };
+export const sample = { volume:25, base:0.1, low:0.099, high:0.101, tolerance:0.10, hints:'both', environment:defaultEnvironment };
 export const equivalence = (acid, volume, base) => acid * volume / base;
 export function validate(c) {
   const ranges = {volume:[5,25],base:[0.025,0.5],low:[0.005,0.5],high:[0.005,0.5],tolerance:[0.01,1]};
@@ -28,10 +29,12 @@ export function validate(c) {
   if (!Array.isArray(c.steps) || c.steps.some(s => !s.source?.trim() || s.warning || !sequence.includes(s.action)) ||
       [...new Set(c.steps.map(s=>s.action))].join() !== sequence.join())
     throw Error('Resolve every step and include all six required actions in bench order.');
-  return c;
+  const environment=validateEnvironment(c.environment);
+  if (!aligned(environment.layout)) throw Error('Place the flask under the burette tip before publishing or previewing.');
+  return {...c, environment};
 }
 export function trial(index) {
-  return { start:[0.73,1.34,0.46,1.81][index%4], delivered:0, unmixed:0, stage:'prepare', initial:null, final:null, held:false };
+  return { start:[0.73,1.34,0.46,1.81][index%4], delivered:0, unmixed:0, stage:'prepare', initial:null, final:null, held:false, hasIndicator:false };
 }
 export function chemistry(c, acid, t, mixed = true) {
   const acidMoles = acid * c.volume / 1000;
@@ -40,7 +43,7 @@ export function chemistry(c, acid, t, mixed = true) {
   const root = Math.hypot(excess, 2e-7);
   const hydrogen = excess >= 0 ? (excess + root)/2 : 2e-14/(root-excess);
   const pH = -Math.log10(hydrogen);
-  const pink = pH < 8.3 ? 0 : 1/(1+10**(9.3-pH));
+  const pink = t.hasIndicator===false || pH < 8.3 ? 0 : 1/(1+10**(9.3-pH));
   return { acidMoles, baseMoles, pH, pink, color:pink===0?'clear':pink<0.7?'faint pink':'deep pink' };
 }
 const dosePrecision = n => Math.round(n*1000)/1000;
@@ -71,6 +74,7 @@ export function advance(t, action, value) {
   if (action==='observe' && t.stage==='titrate' && t.delivered>0 && !t.unmixed) {t.held=true;return;}
   if (action==='finish' && t.stage==='titrate' && t.held) {t.stage='final';return;}
   if (action!==t.stage || action==='titrate' || action==='done') throw Error('Complete the current procedure step first.');
+  if (action==='indicator') t.hasIndicator=true;
   if (action==='initial' || action==='final') {
     if (typeof value!=='string' || !/^\d{1,2}\.\d{2}$/.test(value) || +value>50 || (action==='final' && +value<=t.initial))
       throw Error('Enter a reading to 0.01 mL within the scale. The final reading must exceed the initial reading.');
@@ -78,5 +82,3 @@ export function advance(t, action, value) {
   }
   t.stage=sequence[sequence.indexOf(action)+1] ?? 'done';
 }
-
-

@@ -5,6 +5,7 @@ import {actions,advance,chemistry,concentration,concordant,equivalence,round,sam
 test('known strong acid–strong base case and distinct indicator endpoint',()=>{
   assert.equal(equivalence(.1,25,.1),25);
   const t=trial(0);
+  t.hasIndicator=true;
   t.delivered=25;
   assert.equal(chemistry(sample,.1,t).pH,7);
   assert.equal(chemistry(sample,.1,t).color,'clear');
@@ -44,3 +45,30 @@ test('configured aliquot, range, units and concordance',()=>{
   assert.throws(()=>validate({...c,steps:[{...steps[0],warning:'Ambiguous'},...steps.slice(1)]}));
 });
 
+
+
+test('practice layout bounds, alignment and environment validation', async()=>{
+  const {aligned, defaultEnvironment, moveEquipment, validateEnvironment}=await import('./environment.mjs');
+  const moved=moveEquipment({},'flask',9,-9);
+  assert.deepEqual(moved.flask,{x:2.5,z:-1.6});
+  assert.equal(aligned(moved),false);
+  const docked=moveEquipment(moved,'burette',2.5,-1.6);
+  assert.equal(aligned(docked),true);
+  const environment={...defaultEnvironment,lighting:.75,surface:'slate',layout:docked};
+  assert.deepEqual(validateEnvironment(environment),environment);
+  assert.throws(()=>validateEnvironment({...environment,lighting:2}));
+  const steps=Object.entries(actions).map(([action,source])=>({source,action,warning:''}));
+  assert.throws(()=>validate({...sample,steps,environment:{...environment,layout:moved}}),/flask under/);
+});
+
+test('omitting indicator suppresses colour without altering chemistry',()=>{
+  const t=trial(0);
+  t.delivered=25.01;
+  const omitted=chemistry(sample,.1,t);
+  assert.equal(omitted.color,'clear');
+  t.hasIndicator=true;
+  const added=chemistry(sample,.1,t);
+  assert.equal(added.color,'faint pink');
+  assert.equal(omitted.pH,added.pH);
+  assert.equal(omitted.baseMoles,added.baseMoles);
+});

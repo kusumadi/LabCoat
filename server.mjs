@@ -12,7 +12,7 @@ catch (error) {if (error.code!=='ENOENT') throw error;}
 let writes=Promise.resolve();
 const attempts = new Map();
 const mode = process.env.OPENAI_API_KEY ? 'Live AI' : 'Scripted demo';
-const publicConfig = c => ({volume:c.volume,base:c.base,tolerance:c.tolerance,hints:c.hints,
+const publicConfig = c => ({volume:c.volume,base:c.base,tolerance:c.tolerance,hints:c.hints,environment:c.environment,
   steps:c.steps.map(s=>({action:s.action, instruction:actions[s.action]}))});
 
 async function ai(instructions,input) {
@@ -40,7 +40,7 @@ function view(a) {
   const response=chemistry(a.config,a.acid,t,false);
   return {config:publicConfig(a.config),kind:a.kind,index:a.trials.length-1,stage:t.stage,
     reading:round(t.start+t.delivered),meniscus:t.start+t.delivered,volume:a.config.volume*(sequence.indexOf(t.stage)>=2||t.stage==='done'?1:0)+t.delivered,
-    observation:response.color, pink:response.pink, plume:t.unmixed>0, held:t.held, readyToObserve:t.delivered>0&&!t.unmixed,
+    observation:response.color, pink:response.pink, plume:t.hasIndicator&&t.unmixed>0, hasIndicator:t.hasIndicator, held:t.held, readyToObserve:t.delivered>0&&!t.unmixed,
     notes:a.trials.map((n,i)=>({initial:n.initial,final:n.final,titre:n.final===null?null:titre(n),
       ...(a.kind==='practice' && n.final!==null?{outcome:chemistry(a.config,a.acid,n).color}:{}),index:i})),
     report:a.report};
@@ -96,7 +96,7 @@ async function api(path,req,b) {
   const t=a.trials.at(-1);
   if(path==='/api/hint') {
     if (a.config.hints==='off'||(a.config.hints==='practice'&&a.kind==='mock')) throw Error('Hints are disabled for this attempt.');
-    const state={stage:t.stage,observation:t.unmixed?'transient':chemistry(a.config,a.acid,t).color};
+    const state={stage:t.stage,observation:t.hasIndicator&&t.unmixed?'transient':chemistry(a.config,a.acid,t).color};
     const question=String(b.question||'What should I do next?').slice(0,500);
     const instructions=a.config.steps.map(s=>actions[s.action]);
     const reply=process.env.OPENAI_API_KEY
@@ -106,7 +106,15 @@ async function api(path,req,b) {
   }
   if (a.report) throw Error('This attempt was submitted.');
   if(path==='/api/action') {
-    if (b.action==='repeat') {
+    const experiment=a.kind==='practice' && a.config.environment.experiments;
+    if (b.action==='reset' && experiment && t.stage!=='done') {
+      a.trials[a.trials.length-1]=trial(a.trials.length-1);
+    } else if (b.action==='skip-indicator' && experiment && t.stage==='indicator') {
+      t.stage='initial';
+    } else if (b.action==='add-indicator' && experiment && !t.hasIndicator && ['initial','titrate'].includes(t.stage)) {
+      t.hasIndicator=true;
+      t.held=false;
+    } else if (b.action==='repeat') {
       if(t.stage!=='done' && !(a.kind==='practice'&&t.held&&chemistry(a.config,a.acid,t).color==='deep pink'))
         throw Error('Finish the current trial before starting the next one.');
       if (a.trials.length>=12) throw Error('This attempt has reached 12 trials.');
@@ -148,6 +156,3 @@ createServer(async(req,res)=>{
     res.writeHead(error.code==='ENOENT'?404:400,{'Content-Type':'application/json'}).end(JSON.stringify({error:error.code==='ENOENT'?'Run npm run build first.':error.message}));
   }
 }).listen(Number(process.env.PORT||4173),'127.0.0.1',()=>console.log('LabCoat · http://127.0.0.1:'+(process.env.PORT||4173)));
-
-
-
