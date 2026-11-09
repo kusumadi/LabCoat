@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Bench} from './Bench';
+import {LabIcon} from './LabIcon';
 import {GeneratedLab,type Generated,type LabExample} from './GeneratedLab';
 import {LabRecords,type ChemicalMatch} from './LabRecords';
 import {LayoutControls} from './LayoutControls';
@@ -25,7 +26,7 @@ function App(){
   const [status,setStatus]=useState<{published:boolean;mode:string;experiment?:string;title?:string}>({published:false,mode:'Checking…'});
   const [error,setError]=useState('');
   useEffect(()=>{api<typeof status>('practical').then(setStatus).catch(e=>setError(e.message));},[]);
-  return <><header><a className="brand" href="/"><span>⌬</span> LabCoat<span className="brand-period">.</span></a><nav aria-label="Workspace"><a aria-current={route==='/student'?'page':undefined} href="/student">Student bench</a><a aria-current={route==='/lecturer'?'page':undefined} href="/lecturer">Lecturer studio</a></nav><span className="mode"><i/> {status.mode}</span></header>
+  return <><header><a className="brand" href="/"><span>⌬</span> LabCoat<span className="brand-period">.</span></a><nav aria-label="Workspace"><a aria-current={route==='/student'?'page':undefined} href="/student"><LabIcon name="flask" size={18}/> Student bench</a><a aria-current={route==='/lecturer'?'page':undefined} href="/lecturer"><LabIcon name="tools" size={18}/> Lecturer studio</a></nav><span className="mode"><i/> {status.mode}</span></header>
     <main>{error&&<p role="alert" className="error">{error}</p>}
     {route==='/lecturer'?<Lecturer publish={()=>setStatus({...status,published:true})} mode={status.mode}/>:route==='/student'?(status.experiment==='generated'?<GeneratedLab api={api} title={status.title}/>:<Student published={status.published}/>):<Home published={status.published}/>}</main>
     <footer><span>LABCOAT / CHEMISTRY PRACTICALS</span><span>{status.title??'VIRTUAL TEACHING LAB'}</span></footer></>;
@@ -78,15 +79,15 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
     <button disabled={busy} onClick={()=>work(async()=>{
       const sample=await api<{handout:string;experiment:string}>('sample',{});
       setHandout(sample.handout);setExperiment(sample.experiment);await reviewHandout(sample.handout,sample.experiment);
-    })}>Load titration sample</button>
+    })}><LabIcon name="flask" size={17}/> Titration</button>
     {examples.map(item=><button key={item.id} disabled={busy} onClick={()=>work(async()=>{
       setHandout(item.handout);setExperiment('generated');await reviewHandout(item.handout,'generated');
-    })}>Load {item.id} sample</button>)}
+    })}><LabIcon name={item.id==='osmosis'?'drop':'dish'} size={17}/> {item.id==='osmosis'?'Osmosis':'Crystallisation'}</button>)}
     <label className="field">Experiment type<select value={experiment} onChange={e=>{setExperiment(e.target.value);setDirty(true);}}>
       <option value="generated">Generate from any handout</option><option value="hcl-naoh">Dedicated HCl–NaOH titration</option>
     </select></label>
     <label className="field">Handout text<textarea rows={13} maxLength={12000} value={handout} onChange={e=>{setHandout(e.target.value);setDirty(true);}} placeholder="Paste your practical instructions here…"/></label>
-    <button className="primary" disabled={busy||!handout.trim()} onClick={draft}>{experiment==='generated'?'Generate practical':'Draft mappings'}</button> <small>{mode}</small>
+    <button className="primary" disabled={busy||!handout.trim()} onClick={draft}><LabIcon name="sparkle" size={17}/>{experiment==='generated'?'Generate practical':'Draft mappings'}</button> <small>{mode}</small>
     </section><section className="panel"><p className="kicker">02 / REVIEW</p><h2>Bench mappings</h2>
     {!dirty&&blocked&&<p className="warning" role="status">{blocked}</p>}
     {!dirty&&matches.length>0&&<p>Inventory matches · {matches.map(c=>c.name+(c.simulated?'':' (inventory only)')).join(', ')}</p>}
@@ -187,7 +188,7 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   };
   const instruction=a.config.steps.find(s=>s.action===stage)?.instruction;
   return <><div className="page-intro compact"><p className="kicker">{preview?'UNPUBLISHED PREVIEW':'PRACTICAL / 01'} · {a.kind==='mock'?'MOCK ASSESSMENT':'PRACTICE'}</p><h1>Acid–base titration</h1><p>{a.config.volume.toFixed(2)} mL unknown HCl · {a.config.base.toFixed(4)} mol/L NaOH · Phenolphthalein</p></div>
-  <div className="lab-grid"><section className="panel scene"><div className="scene-head"><div><p className="kicker">LIVE SIMULATION</p><h2>Teaching bench</h2></div><div className="camera" aria-label="Camera angle">{['Bench','Eye level','Flask'].map(v=><button key={v} disabled={!!motion} aria-pressed={camera===v} onClick={()=>setCamera(v)}>{v}</button>)}</div></div>
+  <div className="lab-grid"><section className="panel scene"><div className="scene-head"><div><p className="kicker">LIVE SIMULATION</p><h2>Teaching bench</h2></div><div className="camera" aria-label="Camera angle">{['Bench','Eye level','Flask'].map(v=><button key={v} disabled={!!motion} aria-label={v} title={v} aria-pressed={camera===v} onClick={()=>setCamera(v)}><LabIcon name={v==='Bench'?'bench':v==='Eye level'?'eye':'flask'} size={20}/></button>)}</div></div>
   <Bench fullMotion={fullMotion} duration={motion?.duration} onMotionEnd={()=>{
     if(motion?.after)setCamera(motion.after);
     setMotion(undefined);
@@ -205,7 +206,7 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   {experiments&&stage==='indicator'&&<button disabled={busy} onClick={()=>act('skip-indicator')}>Try without indicator</button>}
   {experimentalIndicator&&<button disabled={busy} onClick={()=>act('add-indicator')}>Add indicator now</button>}
   {['initial','final'].includes(stage)&&<form className="row" onSubmit={e=>{e.preventDefault();void act(stage,reading);}}><label className="field">Reading (mL)<input required inputMode="decimal" placeholder="0.00" value={reading} onChange={e=>setReading(e.target.value)}/></label><button disabled={busy} className="primary">Record reading</button></form>}
-  {stage==='titrate'&&<><label className="field">Stopcock setting<select value={flow} onChange={e=>setFlow(e.target.value)}><option value="stream">Stream (1.00 mL)</option><option value="drop">Single drop (0.03 mL)</option><option value="partial">Feather stopcock (fraction of a drop)</option></select></label><div className="row"><button disabled={busy} className="primary" onClick={()=>act('add',flow)}>Open stopcock</button><button disabled={busy} onClick={()=>act('swirl')}>Swirl flask</button><button disabled={busy||!a.readyToObserve} onClick={()=>act('observe')}>Observe 30 s (simulated)</button>{a.held&&<button disabled={busy} onClick={()=>act('finish')}>Take final reading →</button>}</div>{a.held&&<p role="status">After 30 simulated seconds · {a.observation}</p>}</>}
+  {stage==='titrate'&&<><label className="field">Stopcock setting<select value={flow} onChange={e=>setFlow(e.target.value)}><option value="stream">Stream (1.00 mL)</option><option value="drop">Single drop (0.03 mL)</option><option value="partial">Feather stopcock (fraction of a drop)</option></select></label><div className="row"><button disabled={busy} className="primary" onClick={()=>act('add',flow)}><LabIcon name="drop" size={18}/> Dose</button><button disabled={busy} onClick={()=>act('swirl')}><LabIcon name="mix" size={18}/> Swirl</button><button disabled={busy||!a.readyToObserve} onClick={()=>act('observe')}><LabIcon name="timer" size={18}/> Observe 30 s</button>{a.held&&<button disabled={busy} onClick={()=>act('finish')}>Take final reading →</button>}</div>{a.held&&<p role="status">After 30 simulated seconds · {a.observation}</p>}</>}
   {(stage==='done'||(stage==='titrate'&&a.kind==='practice'&&a.held&&a.observation==='deep pink'))&&<button disabled={busy} onClick={()=>act('repeat')}>{stage==='done'?'Start repeat trial':'Discard and retry'}</button>}
   {experiments&&!['prepare','done'].includes(stage)&&<div className="reset-row"><button disabled={busy} onClick={()=>act('reset')}>Restart this trial</button></div>}
   </div>}

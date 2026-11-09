@@ -90,7 +90,7 @@ async function api(path,req,b) {
     if(lab?.experiment!=='generated')throw Error('Publish a generated practical first.');
     const id=randomUUID();
     generatedAttempts.set(id,{lab,results:[],ref:randomUUID(),preview:!!b.preview});
-    return {id,title:lab.title,handout:lab.handout,tools:[...new Set(lab.steps.map(s=>s.tool))],operations,total:lab.steps.length,
+    return {id,title:lab.title,handout:lab.handout,tools:[...new Set(lab.steps.map(s=>s.tool))],operations:operations.filter(operation=>lab.steps.some(s=>s.operation===operation)),total:lab.steps.length,
       instruction:lab.steps[0].instruction,unit:lab.steps[0].setting?.unit};
   }
   if(path==='/api/generated-action') {
