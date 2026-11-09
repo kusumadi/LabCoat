@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Bench} from './Bench';
+import {GeneratedLab,type Generated,type LabExample} from './GeneratedLab';
 import {LabRecords,type ChemicalMatch} from './LabRecords';
 import {LayoutControls} from './LayoutControls';
 import {aligned,defaultEnvironment,type Environment,type Layout} from './environment.mjs';
@@ -21,20 +22,20 @@ const fmt=(n:number|null)=>n===null?'—':n.toFixed(2);
 const name=(i:number)=>i===0?'Rough run':'Repeat '+i;
 function App(){
   const route=location.pathname;
-  const [status,setStatus]=useState({published:false,mode:'Checking…'});
+  const [status,setStatus]=useState<{published:boolean;mode:string;experiment?:string;title?:string}>({published:false,mode:'Checking…'});
   const [error,setError]=useState('');
   useEffect(()=>{api<typeof status>('practical').then(setStatus).catch(e=>setError(e.message));},[]);
   return <><header><a className="brand" href="/"><span>⌬</span> LabCoat<span className="brand-period">.</span></a><nav aria-label="Workspace"><a aria-current={route==='/student'?'page':undefined} href="/student">Student bench</a><a aria-current={route==='/lecturer'?'page':undefined} href="/lecturer">Lecturer studio</a></nav><span className="mode"><i/> {status.mode}</span></header>
     <main>{error&&<p role="alert" className="error">{error}</p>}
-    {route==='/lecturer'?<Lecturer publish={()=>setStatus({...status,published:true})} mode={status.mode}/>:route==='/student'?<Student published={status.published}/>:<Home published={status.published}/>}</main>
-    <footer><span>LABCOAT / CHEMISTRY PRACTICALS</span><span>01 / ACID–BASE TITRATION</span></footer></>;
+    {route==='/lecturer'?<Lecturer publish={()=>setStatus({...status,published:true})} mode={status.mode}/>:route==='/student'?(status.experiment==='generated'?<GeneratedLab api={api} title={status.title}/>:<Student published={status.published}/>):<Home published={status.published}/>}</main>
+    <footer><span>LABCOAT / CHEMISTRY PRACTICALS</span><span>{status.title??'VIRTUAL TEACHING LAB'}</span></footer></>;
 }
 function Home({published}:{published:boolean}){
   return <><section className="hero"><div className="hero-copy"><p className="kicker">VIRTUAL CHEMISTRY LABORATORY / 01</p><h1>Acid–base<br/>titration<span>.</span></h1><p>Rehearse the bench technique, read the meniscus and determine the concentration of an unknown hydrochloric acid sample.</p><div className="row"><a className="button primary" href={published?'/student':'/lecturer'}>{published?'Enter the student bench':'Set up the practical'} →</a><a className="button" href={published?'/lecturer':'/student'}>{published?'Lecturer studio':'Student bench'}</a></div></div><div className="hero-bench"><Bench reading={.73} volume={25} pink={.18} plume={false} camera="Bench" motion="" filled act={()=>{}}/><span className="bench-tag">FIG. 01 / TEACHING BENCH</span></div></section><div className="home-meta"><div><small>ANALYTE</small><strong>Unknown HCl</strong></div><div><small>TITRANT</small><strong>Standardised NaOH</strong></div><div><small>INDICATOR</small><strong>Phenolphthalein</strong></div></div></>;
 }
 function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
   const [handout,setHandout]=useState('');
-  const [experiment,setExperiment]=useState('hcl-naoh');
+  const [experiment,setExperiment]=useState('generated');
   const [matches,setMatches]=useState<ChemicalMatch[]>([]);
   const [blocked,setBlocked]=useState('');
   const [catalogue,setCatalogue]=useState<Record<string,string[]>>({});
@@ -43,33 +44,65 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
   const [dirty,setDirty]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
-  const [preview,setPreview]=useState<Config>();
+  const [preview,setPreview]=useState<Config|Generated>();
+  const [generated,setGenerated]=useState<Generated>();
+  const [examples,setExamples]=useState<LabExample[]>([]);
+  const [review,setReview]=useState<string[]>([]);
+  const [reviewed,setReviewed]=useState(false);
   async function work(task:()=>Promise<void>){
     setBusy(true);setNotice('');setError('');
     try{await task();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
-  useEffect(()=>{api<{config?:Config;catalogue:Record<string,string[]>}>('approved',{}).then(data=>{setCatalogue(data.catalogue);if(data.config){setConfig(data.config);setExperiment(data.config.experiment??'hcl-naoh');setHandout(data.config.steps.map(s=>s.source).join('\n'));}}).catch(e=>setError(e.message));},[]);
+  useEffect(()=>{
+    api<LabExample[]>('lab-examples',{}).then(setExamples).catch(e=>setError(e.message));
+    api<{config?:Config;lab?:Generated;catalogue:Record<string,string[]>}>('approved',{}).then(data=>{
+      setCatalogue(data.catalogue);
+      if(data.lab){setGenerated(data.lab);setHandout(data.lab.handout);}
+      if(data.config){setConfig(data.config);setExperiment(data.config.experiment??'hcl-naoh');setHandout(data.config.steps.map(s=>s.source).join('\n'));}
+    }).catch(e=>setError(e.message));
+  },[]);
   async function reviewHandout(text:string,kind:string){
     setDirty(true);
+    setReviewed(false);
+    if(kind==='generated'){
+      const data=await api<{lab:Generated;review:string[];chemicals:ChemicalMatch[]}>('generate-lab',{handout:text});
+      setGenerated(data.lab);setReview(data.review);setMatches(data.chemicals);setBlocked('');setDirty(false);
+      return;
+    }
     const data=await api<{config?:Config;chemicals:ChemicalMatch[];blocked?:string}>('draft',{handout:text,experiment:kind});
     setConfig(data.config);setMatches(data.chemicals);setBlocked(data.blocked??'');setDirty(false);
   }
   const draft=()=>work(()=>reviewHandout(handout,experiment));
   return <><div className="page-intro"><p className="kicker">PRACTICAL AUTHORING / 01</p><h1>Lecturer studio</h1><p>Map your procedure to the teaching bench, review its settings and publish it for students.</p></div>
-  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button><Student published preview={preview}/></>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Paste one instruction per line, or load the editable demonstration procedure.</p>
+  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button>{preview.experiment==='generated'?<GeneratedLab api={api} preview={preview as Generated}/>:<Student published preview={preview as Config}/>}</>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Paste a chemistry handout to generate a practical, or load a sample to try the workflow.</p>
     <button disabled={busy} onClick={()=>work(async()=>{
       const sample=await api<{handout:string;experiment:string}>('sample',{});
       setHandout(sample.handout);setExperiment(sample.experiment);await reviewHandout(sample.handout,sample.experiment);
-    })}>Load demonstration procedure</button>
+    })}>Load titration sample</button>
+    {examples.map(item=><button key={item.id} disabled={busy} onClick={()=>work(async()=>{
+      setHandout(item.handout);setExperiment('generated');await reviewHandout(item.handout,'generated');
+    })}>Load {item.id} sample</button>)}
     <label className="field">Experiment type<select value={experiment} onChange={e=>{setExperiment(e.target.value);setDirty(true);}}>
-      <option value="hcl-naoh">HCl–NaOH titration</option><option value="other">Other experiment</option>
+      <option value="generated">Generate from any handout</option><option value="hcl-naoh">Dedicated HCl–NaOH titration</option>
     </select></label>
-    <label className="field">Handout text<textarea rows={13} value={handout} onChange={e=>{setHandout(e.target.value);setDirty(true);}} placeholder="Paste your practical instructions here…"/></label>
-    <button className="primary" disabled={busy||!handout.trim()} onClick={draft}>Draft mappings</button> <small>{mode}</small>
+    <label className="field">Handout text<textarea rows={13} maxLength={12000} value={handout} onChange={e=>{setHandout(e.target.value);setDirty(true);}} placeholder="Paste your practical instructions here…"/></label>
+    <button className="primary" disabled={busy||!handout.trim()} onClick={draft}>{experiment==='generated'?'Generate practical':'Draft mappings'}</button> <small>{mode}</small>
     </section><section className="panel"><p className="kicker">02 / REVIEW</p><h2>Bench mappings</h2>
     {!dirty&&blocked&&<p className="warning" role="status">{blocked}</p>}
     {!dirty&&matches.length>0&&<p>Inventory matches · {matches.map(c=>c.name+(c.simulated?'':' (inventory only)')).join(', ')}</p>}
-    {!config?<p>{blocked?'Publication requires a compatible simulation model.':'Draft a procedure to review its equipment and actions.'}</p>:<><p>Review the source beside each bench action. Selecting an action confirms that you have resolved the warning.</p>
+    {experiment==='generated'?(!generated?<p>Generate a draft to review the procedure and apparatus.</p>:<>
+      <h3>{generated.title}</h3>
+      <p>Review each action and representative observation against the source. Preview the bench before publishing.</p>
+      {review.length>0&&<ul className="warning">{review.map((item,i)=><li key={i}>{item}</li>)}</ul>}
+      <ol className="mapping">{generated.steps.map((step,i)=><li key={i}>
+        <small>{step.source}</small><p>{step.operation} · {step.tool}{step.setting&&' · '+step.setting.value+' '+step.setting.unit}</p>
+        {(['instruction','observation'] as const).map(field=><label key={field} className="field">{field==='instruction'?'Student instruction':'Representative observation'}<textarea rows={2} maxLength={500} value={step[field]} onChange={e=>{
+          setReviewed(false);setGenerated({...generated,steps:generated.steps.map((row,j)=>j===i?{...row,[field]:e.target.value}:row)});
+        }}/></label>)}
+      </li>)}</ol>
+      <label className="check"><input type="checkbox" disabled={dirty||busy} checked={reviewed&&!dirty} onChange={e=>setReviewed(e.target.checked)}/> I reviewed the instructions, apparatus and observations against the handout.</label>
+      <div className="row"><button disabled={busy||dirty} onClick={()=>setPreview(generated)}>Student preview</button><button className="primary" disabled={busy||dirty||!reviewed} onClick={()=>work(async()=>{await api('publish',{...generated,reviewed});publish();setNotice('Practical published.');})}>Publish practical</button></div>
+    </>):!config?<p>{blocked?'Publication requires a compatible simulation model.':'Draft a procedure to review its equipment and actions.'}</p>:<><p>Review the source beside each bench action. Selecting an action confirms that you have resolved the warning.</p>
     <ol className="mapping">{config.steps.map((s,i)=><li key={i}><div>{s.source}{s.warning&&<small className="warning">{s.warning}</small>}</div><select aria-label={'Action for instruction '+(i+1)} value={s.action} onChange={e=>{const action=e.target.value;setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,action,warning:action?'':'Select a supported action.'}:x)});}}><option value="">Unresolved</option>{steps.map(key=><option key={key} value={key}>{labels[key]}</option>)}</select>{s.action&&<small>{catalogue[s.action]?.join(' · ')}</small>}{s.warning&&s.action&&<button onClick={()=>setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,warning:''}:x)})}>Confirm mapping</button>}</li>)}</ol>
     <h2>Practical settings</h2><div className="fields">
     <label className="field">Aliquot (mL)<select value={config.volume} onChange={e=>setConfig({...config,volume:+e.target.value})}>{[5,10,20,25].map(v=><option key={v}>{v}</option>)}</select></label>
