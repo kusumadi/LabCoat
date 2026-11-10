@@ -28,3 +28,11 @@ header{background:#282346;color:#fff}nav a{display:inline-flex;gap:.45rem;align-
 .generated-bench .bench-controls-hint{font-size:.78rem;margin:.15rem auto}
 .generated-bench .bench-observation{margin:.15rem auto}
 .generated-fallback{height:100%;display:grid;align-content:center;justify-items:center;color:#5942ac}
+.generated-grid{grid-template-columns:minmax(0,1.75fr) minmax(0,1fr)}
+.generated-canvas{position:relative}
+.generated-bench-labels{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.generated-bench-labels span{position:absolute;top:0;left:0;width:max-content;max-width:min(17ch,16%);padding:.12rem .29rem;background:#fcfaffeb;color:#3e3168;border-radius:.28rem;font-size:.63rem;line-height:1.15;font-weight:700;overflow-wrap:anywhere}
+.generated-bench-labels .material-tag{background:#d9f3ed;color:#174d46}
+.bench-view-tools{justify-content:center}
+.bench-view-tools button{min-height:34px;font-size:.77rem;padding:.3rem .55rem}
+@media(max-width:850px){.generated-grid{grid-template-columns:1fr}}

@@ -121,6 +121,10 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
       <h3>{generated.title}</h3>
       <p>Review each action and representative observation against the source. Preview the bench before publishing.</p>
       {review.length>0&&<ul className="warning">{review.map((item,i)=><li key={i}>{item}</li>)}</ul>}
+      <label className="field">Materials on the bench (one per line)<textarea rows={3} maxLength={1944}
+        placeholder="Distilled water&#10;Solid: Sample A" value={generated.materials?.join('\n')??''} onChange={e=>{
+          setReviewed(false);setGenerated({...generated,materials:e.target.value.split(/\r?\n/)});
+        }}/><small>Include any missing reagents and samples. Start a line with “Solid:” for a solid sample.</small></label>
       <ol className="mapping">{generated.steps.map((step,i)=><li key={i}>
         <small>{step.source}</small><p>{step.operation} · {step.tool}{step.setting&&' · '+step.setting.value+' '+step.setting.unit}</p>
         {(['instruction','observation'] as const).map(field=><label key={field} className="field">{field==='instruction'?'Student instruction':'Representative observation'}<textarea rows={2} maxLength={500} value={step[field]} onChange={e=>{
@@ -128,7 +132,7 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
         }}/></label>)}
       </li>)}</ol>
       <label className="check"><input type="checkbox" disabled={dirty||busy} checked={reviewed&&!dirty} onChange={e=>setReviewed(e.target.checked)}/> I reviewed the instructions, apparatus and observations against the handout.</label>
-      <div className="row"><button disabled={busy||dirty} onClick={()=>setPreview(generated)}>Student preview</button><button className="primary" disabled={busy||dirty||!reviewed} onClick={()=>work(async()=>{await api('publish',{...generated,reviewed});publish();setNotice('Practical published.');})}>Publish practical</button></div>
+      <div className="row"><button disabled={busy||dirty} onClick={()=>setPreview({...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean)})}>Student preview</button><button className="primary" disabled={busy||dirty||!reviewed} onClick={()=>work(async()=>{await api('publish',{...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean),reviewed});publish();setNotice('Practical published.');})}>Publish practical</button></div>
     </>):!config?<p>{blocked?'Publication requires a compatible simulation model.':'Draft a procedure to review its equipment and actions.'}</p>:<><p>Review the source beside each bench action. Selecting an action confirms that you have resolved the warning.</p>
     <ol className="mapping">{config.steps.map((s,i)=><li key={i}><div>{s.source}{s.warning&&<small className="warning">{s.warning}</small>}</div><select aria-label={'Action for instruction '+(i+1)} value={s.action} onChange={e=>{const action=e.target.value;setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,action,warning:action?'':'Select a supported action.'}:x)});}}><option value="">Unresolved</option>{steps.map(key=><option key={key} value={key}>{labels[key]}</option>)}</select>{s.action&&<small>{catalogue[s.action]?.join(' · ')}</small>}{s.warning&&s.action&&<button onClick={()=>setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,warning:''}:x)})}>Confirm mapping</button>}</li>)}</ol>
     <h2>Practical settings</h2><div className="fields">

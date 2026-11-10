@@ -22,6 +22,8 @@ export const examples={
   crystallisation:sample('Salt crystallisation by evaporation',crystal),
   osmosis:sample('Osmosis in potato tissue',osmosis)
 };
+examples.crystallisation.materials=['Prepared sodium chloride solution'];
+examples.osmosis.materials=['Distilled water','Concentrated salt solution','Solid: Potato piece A','Solid: Potato piece B'];
 examples.crystallisation.steps[0].setting={value:10,unit:'mL'};
 examples.osmosis.steps[2].setting={value:30,unit:'min'};
 export const visuals=['neutral','liquid','crystals','samples','osmosis','bubbles','layers','precipitate'];
@@ -33,6 +35,9 @@ export function validateLab(lab) {
   if(lab?.experiment!=='generated'||!field(lab.title,120)||!field(lab.handout,12000)||
     !Array.isArray(lab.steps)||lab.steps.length<2||lab.steps.length>24)
     throw Error('A generated practical needs a title, handout and 2 to 24 supported steps.');
+  if(lab.materials!==undefined&&(!Array.isArray(lab.materials)||lab.materials.length>24||
+    lab.materials.some(name=>!field(name,80)||!name.replace(/^solid:\s*/i,'').trim())))
+    throw Error('List up to 24 bench materials, with up to 80 characters per name.');
   const normalise=s=>s.trim().replace(/\s+/g,' ');
   for(const step of lab.steps){
     if(!step||!field(step.source,1200)||!normalise(lab.handout).includes(normalise(step.source))||

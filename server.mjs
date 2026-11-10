@@ -97,7 +97,7 @@ async function api(path,req,b) {
     const review=Array.isArray(draft.review)?draft.review.filter(item=>typeof item==='string').slice(0,24):[];
     if(!draft.steps?.length)throw Error(review.join(' ')||'This handout could not be mapped to supported bench actions.');
     if(inputFile)source=draft.handout;
-    const lab=validateLab({experiment:'generated',title:draft.title,handout:source,steps:draft.steps});
+    const lab=validateLab({experiment:'generated',title:draft.title,handout:source,steps:draft.steps,materials:records.inspect(source).slice(0,24).map(row=>row.name)});
     return {lab,mode:'Live AI',review,chemicals:records.inspect(source)};
   }
   if(path==='/api/generated-start') {
@@ -106,6 +106,7 @@ async function api(path,req,b) {
     const id=randomUUID();
     generatedAttempts.set(id,{lab,results:[],ref:randomUUID(),preview:!!b.preview});
     return {id,title:lab.title,handout:lab.handout,tools:[...new Set(lab.steps.map(s=>s.tool))],operations:operations.filter(operation=>lab.steps.some(s=>s.operation===operation)),total:lab.steps.length,
+      materials:lab.materials??Object.values(examples).find(example=>example.handout===lab.handout)?.materials??records.inspect(lab.handout).slice(0,24).map(row=>row.name),
       apparatus:Object.fromEntries(lab.steps.filter(step=>step.apparatus).map(step=>[step.tool,step.apparatus])),instruction:lab.steps[0].instruction,unit:lab.steps[0].setting?.unit};
   }
   if(path==='/api/generated-action') {
