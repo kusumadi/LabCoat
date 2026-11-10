@@ -43,6 +43,20 @@ export function openLabRecords(path) {
       mode TEXT NOT NULL, code TEXT NOT NULL, evidence TEXT NOT NULL, created TEXT NOT NULL,
       reviewed INTEGER NOT NULL DEFAULT 0, UNIQUE(attempt, trial, run, code)
     );
+    CREATE TABLE IF NOT EXISTS submissions (
+      id TEXT PRIMARY KEY,
+      student_name TEXT NOT NULL,
+      student_id TEXT NOT NULL,
+      experiment_type TEXT NOT NULL,
+      experiment_title TEXT NOT NULL,
+      submitted_at TEXT NOT NULL,
+      result_entered REAL,
+      result_expected REAL,
+      unit TEXT,
+      agrees INTEGER NOT NULL,
+      trials_count INTEGER NOT NULL,
+      details_json TEXT NOT NULL
+    );
   `);
   const insert=db.prepare('INSERT OR REPLACE INTO chemicals VALUES (?, ?, ?, ?, ?, ?, ?)');
   const add=row=>insert.run(row.id,row.name,row.formula,row.cas,row.sds,row.aliases,
@@ -89,6 +103,32 @@ export function openLabRecords(path) {
       const row=db.prepare('SELECT mode,code,evidence FROM incidents WHERE id=?').get(id);
       if (!row) throw Error('Incident not found.');
       return row;
+    },
+    recordSubmission({studentName,studentId,experimentType,experimentTitle,resultEntered=null,resultExpected=null,unit=null,agrees,trialsCount,details={}}) {
+      const name=boundedText(studentName,120,'student name');
+      const sid=boundedText(studentId,80,'student ID');
+      if (!name||!sid) throw Error('Enter your student name and student ID before submitting.');
+      const type=boundedText(experimentType,40,'experiment type')||'titration';
+      const title=boundedText(experimentTitle,200,'experiment title')||'Acid–base titration';
+      const id=randomUUID();
+      const submittedAt=new Date().toISOString();
+      const entered=resultEntered!==null&&resultEntered!==undefined&&Number.isFinite(Number(resultEntered))?Number(resultEntered):null;
+      const expected=resultExpected!==null&&resultExpected!==undefined&&Number.isFinite(Number(resultExpected))?Number(resultExpected):null;
+      const cleanUnit=unit?boundedText(unit,32,'unit'):null;
+      const agreesFlag=agrees?1:0;
+      const count=Number.isInteger(trialsCount)&&trialsCount>=0?trialsCount:0;
+      const detailsJson=typeof details==='string'?details:JSON.stringify(details??{});
+      db.prepare(`INSERT INTO submissions (
+        id, student_name, student_id, experiment_type, experiment_title, submitted_at,
+        result_entered, result_expected, unit, agrees, trials_count, details_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, name, sid, type, title, submittedAt, entered, expected, cleanUnit, agreesFlag, count, detailsJson
+      );
+      return {id,student_name:name,student_id:sid,experiment_type:type,experiment_title:title,submitted_at:submittedAt,
+        result_entered:entered,result_expected:expected,unit:cleanUnit,agrees:agreesFlag,trials_count:count,details_json:detailsJson};
+    },
+    listSubmissions() {
+      return db.prepare('SELECT * FROM submissions ORDER BY submitted_at DESC, rowid DESC LIMIT 100').all();
     }
   };
 }

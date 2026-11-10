@@ -32,3 +32,55 @@ test('lecturer inbox deduplicates one observation per run and tracks review', t=
   assert.equal(records.inbox().unread,1);
   assert.equal(records.inbox().rows.at(-1).reviewed,1);
 });
+
+test('student submissions validate identity, record titration and generated labs, and persist across restarts', async t=>{
+  const {mkdtemp, rm}=await import('node:fs/promises');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const dir=await mkdtemp(join(tmpdir(),'labcoat-test-'));
+  const dbPath=join(dir,'records.sqlite');
+  t.after(()=>rm(dir,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
+
+  const first=openLabRecords(dbPath);
+  assert.throws(()=>first.recordSubmission({
+    studentName:'',studentId:'S100',experimentType:'titration',experimentTitle:'Acid–base titration',
+    resultEntered:0.1,resultExpected:0.1,unit:'mol/L',agrees:1,trialsCount:3,details:{}
+  }),/student name and student ID/i);
+
+  first.recordSubmission({
+    studentName:'Alice Tan',
+    studentId:'S1001',
+    experimentType:'titration',
+    experimentTitle:'Acid–base titration',
+    resultEntered:0.0998,
+    resultExpected:0.1,
+    unit:'mol/L',
+    agrees:1,
+    trialsCount:3,
+    details:{concordantTitres:[25.00,24.95]}
+  });
+  first.recordSubmission({
+    studentName:'Bob Lim',
+    studentId:'S1002',
+    experimentType:'generated',
+    experimentTitle:'Salt crystallisation by evaporation',
+    resultEntered:null,
+    resultExpected:null,
+    unit:null,
+    agrees:1,
+    trialsCount:5,
+    details:{steps:[{step:1,note:'Clear solution'}]}
+  });
+  first.close();
+
+  const reopened=openLabRecords(dbPath);
+  const rows=reopened.listSubmissions();
+  assert.equal(rows.length,2);
+  assert.equal(rows[0].student_name,'Bob Lim');
+  assert.equal(rows[0].experiment_type,'generated');
+  assert.equal(rows[1].student_name,'Alice Tan');
+  assert.equal(rows[1].student_id,'S1001');
+  assert.equal(rows[1].result_entered,0.0998);
+  assert.equal(rows[1].agrees,1);
+  reopened.close();
+});

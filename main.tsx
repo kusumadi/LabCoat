@@ -10,7 +10,7 @@ import './style.css';
 
 type Config={experiment?:string;environment:Environment;volume:number;base:number;low:number;high:number;tolerance:number;hints:string;steps:{source:string;action:string;warning:string}[]};
 type PublicConfig=Pick<Config,'volume'|'base'|'tolerance'|'hints'|'environment'>&{steps:{action:string;instruction:string}[]};
-type Attempt={config:PublicConfig;kind:string;index:number;stage:string;reading:number;meniscus:number;volume:number;observation:string;pink:number;plume:boolean;hasIndicator:boolean;held:boolean;readyToObserve:boolean;notes:{index:number;initial:number|null;final:number|null;titre:number|null;outcome?:string}[];report?:{group:number[];expected:number;entered:number;unit:string;agrees:boolean;trials:{index:number;actual:number;outcome:string;readingError:boolean}[]}};
+type Attempt={config:PublicConfig;kind:string;index:number;stage:string;reading:number;meniscus:number;volume:number;observation:string;pink:number;plume:boolean;hasIndicator:boolean;held:boolean;readyToObserve:boolean;notes:{index:number;initial:number|null;final:number|null;titre:number|null;outcome?:string}[];report?:{studentName?:string;studentId?:string;group:number[];expected:number;entered:number;unit:string;agrees:boolean;trials:{index:number;actual:number;outcome:string;readingError:boolean}[]}};
 const labels:Record<string,string>={prepare:'Prepare burette',transfer:'Transfer acid',indicator:'Add indicator',initial:'Read initial level',titrate:'Titrate and swirl',final:'Read final level',done:'Review trial'};
 const steps=Object.keys(labels).slice(0,6);
 async function api<T>(path:string,body?:object):Promise<T>{
@@ -147,6 +147,8 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   const [question,setQuestion]=useState('What should I do next?');
   const [result,setResult]=useState('');
   const [unit,setUnit]=useState('mol/L');
+  const [studentName,setStudentName]=useState('');
+  const [studentId,setStudentId]=useState('');
   const [pending,setBusy]=useState(false);
   const busy=pending||!!motion;
   async function work(task:()=>Promise<void>){
@@ -154,8 +156,12 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
     setBusy(true);setError('');
     try{await task();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
-  const start=()=>work(async()=>{const data=await api<Attempt&{id:string}>('start',{kind,preview});setId(data.id);setAttempt(data);setLayout(data.config.environment.layout);});
-  if(!attempt)return <div className="start panel"><p className="kicker">{preview?'UNPUBLISHED PREVIEW':'STUDENT BENCH / 01'}</p><h1>Acid–base titration</h1><p>Determine the concentration of an unknown hydrochloric acid sample using standardised sodium hydroxide.</p>{!preview&&<p>LabCoat sends selected technique observations to the lecturer’s incident inbox.</p>}{published?<><label className="field">Attempt mode<select value={kind} onChange={e=>setKind(e.target.value)}><option value="practice">Practice</option><option value="mock">Mock assessment</option></select></label><button className="primary" disabled={busy} onClick={start}>Start attempt →</button></>:<p>Waiting for a published practical. <a href="/lecturer">Open lecturer studio</a></p>}{error&&<p className="error" role="alert">{error}</p>}</div>;
+  const start=()=>work(async()=>{
+    if(!studentName.trim()||!studentId.trim())throw Error('Enter your student name and student ID before starting.');
+    const data=await api<Attempt&{id:string}>('start',{kind,preview,studentName:studentName.trim(),studentId:studentId.trim()});
+    setId(data.id);setAttempt(data);setLayout(data.config.environment.layout);
+  });
+  if(!attempt)return <div className="start panel"><p className="kicker">{preview?'UNPUBLISHED PREVIEW':'STUDENT BENCH / 01'}</p><h1>Acid–base titration</h1><p>Determine the concentration of an unknown hydrochloric acid sample using standardised sodium hydroxide.</p>{!preview&&<p>LabCoat sends selected technique observations to the lecturer’s incident inbox.</p>}{published?<><div className="fields"><label className="field">Student Name<input maxLength={120} placeholder="e.g. Jane Doe" value={studentName} onChange={e=>setStudentName(e.target.value)}/></label><label className="field">Student ID<input maxLength={80} placeholder="e.g. S1234567" value={studentId} onChange={e=>setStudentId(e.target.value)}/></label></div><label className="field">Attempt mode<select value={kind} onChange={e=>setKind(e.target.value)}><option value="practice">Practice</option><option value="mock">Mock assessment</option></select></label><button className="primary" disabled={busy} onClick={start}>Start attempt →</button></>:<p>Waiting for a published practical. <a href="/lecturer">Open lecturer studio</a></p>}{error&&<p className="error" role="alert">{error}</p>}</div>;
   const a=attempt, stage=a.stage;
   const environment=a.config.environment;
   const movable=a.kind==='practice'&&environment.movable;
@@ -215,8 +221,8 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   </section></div>
   <section className="panel notebook"><p className="kicker">EXPERIMENT RECORD</p><h2>Lab notebook</h2><div className="table-wrap"><table><thead><tr><th>Trial</th><th>Initial (mL)</th><th>Final (mL)</th><th>Titre (mL)</th>{a.kind==='practice'&&<th>Observation</th>}</tr></thead><tbody>{a.notes.map(n=><tr key={n.index}><th>{name(n.index)}</th><td>{fmt(n.initial)}</td><td>{fmt(n.final)}</td><td>{fmt(n.titre)}</td>{a.kind==='practice'&&<td>{n.outcome||'—'}</td>}</tr>)}</tbody></table></div>
   <p>Use at least two repeat titres within {a.config.tolerance.toFixed(2)} mL of one another. Calculate the HCl concentration from the mean titre and the 1:1 reaction.</p>
-  {a.report?<div className="report" role="status"><h3>Submission feedback</h3><p>{a.report.agrees?'Your result agrees with your recorded titres.':'Check the calculation from your recorded titres.'} Your value: {a.report.entered} {a.report.unit}. Calculated value: {a.report.expected.toPrecision(5)} {a.report.unit} from {a.report.group.map(fmt).join(', ')} mL.</p><ul>{a.report.trials.map(t=><li key={t.index}>{name(t.index)} · {t.outcome} · actual delivery {fmt(t.actual)} mL{t.readingError?' · review your meniscus readings':''}</li>)}</ul></div>:
-  <form className="row" onSubmit={e=>{e.preventDefault();void work(async()=>setAttempt(await api<Attempt>('submit',{id,result,unit})));}}><label className="field">Calculated HCl concentration<input required type="number" step="any" min="0" value={result} onChange={e=>setResult(e.target.value)}/></label><label className="field">Units<select value={unit} onChange={e=>setUnit(e.target.value)}><option>mol/L</option><option>mmol/L</option></select></label><button className="primary" disabled={busy||stage!=='done'||a.notes.filter(n=>n.index>0&&n.final!==null).length<2}>Submit concentration</button></form>}
+  {a.report?<div className="report" role="status"><h3>Submission feedback</h3><p className="submission-banner"><strong>Submitted by {a.report.studentName||studentName} ({a.report.studentId||studentId})</strong></p><p>{a.report.agrees?'Your result agrees with your recorded titres.':'Check the calculation from your recorded titres.'} Your value: {a.report.entered} {a.report.unit}. Calculated value: {a.report.expected.toPrecision(5)} {a.report.unit} from {a.report.group.map(fmt).join(', ')} mL.</p><ul>{a.report.trials.map(t=><li key={t.index}>{name(t.index)} · {t.outcome} · actual delivery {fmt(t.actual)} mL{t.readingError?' · review your meniscus readings':''}</li>)}</ul></div>:
+  <form className="row" onSubmit={e=>{e.preventDefault();void work(async()=>setAttempt(await api<Attempt>('submit',{id,result,unit,studentName,studentId})));}}><label className="field">Calculated HCl concentration<input required type="number" step="any" min="0" value={result} onChange={e=>setResult(e.target.value)}/></label><label className="field">Units<select value={unit} onChange={e=>setUnit(e.target.value)}><option>mol/L</option><option>mmol/L</option></select></label><button className="primary" disabled={busy||stage!=='done'||a.notes.filter(n=>n.index>0&&n.final!==null).length<2}>Submit concentration</button></form>}
   </section></>;
 }
 createRoot(document.getElementById('root')!).render(<App/>);

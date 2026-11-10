@@ -62,6 +62,7 @@ async function api(path,req,b) {
   if(path==='/api/inventory') return records.search(b.query);
   if(path==='/api/import-inventory') return {imported:records.import(b.rows)};
   if(path==='/api/incidents') return records.inbox();
+  if(path==='/api/submissions') return records.listSubmissions();
   if(path==='/api/review-incident') {records.review(b.id);return records.inbox();}
   if(path==='/api/explain-incident') {
     const incident=records.incident(b.id);
@@ -88,8 +89,10 @@ async function api(path,req,b) {
   if(path==='/api/generated-start') {
     const lab=b.preview?validateLab(b.preview):approved;
     if(lab?.experiment!=='generated')throw Error('Publish a generated practical first.');
+    const studentName=typeof b.studentName==='string'?b.studentName.trim():'';
+    const studentId=typeof b.studentId==='string'?b.studentId.trim():'';
     const id=randomUUID();
-    generatedAttempts.set(id,{lab,results:[],ref:randomUUID(),preview:!!b.preview});
+    generatedAttempts.set(id,{lab,results:[],ref:randomUUID(),preview:!!b.preview,studentName,studentId});
     return {id,title:lab.title,handout:lab.handout,tools:[...new Set(lab.steps.map(s=>s.tool))],operations:operations.filter(operation=>lab.steps.some(s=>s.operation===operation)),total:lab.steps.length,
       instruction:lab.steps[0].instruction,unit:lab.steps[0].setting?.unit};
   }
@@ -108,6 +111,38 @@ async function api(path,req,b) {
     attempt.results.push(result);
     const next=attempt.lab.steps[index+1];
     return {result,instruction:next?.instruction??null,unit:next?.setting?.unit};
+  }
+  if(path==='/api/generated-submit') {
+    const attempt=generatedAttempts.get(b.id);
+    if(!attempt)throw Error('Start a new practical.');
+    if(attempt.submitted)throw Error('This practical was already submitted.');
+    const studentName=typeof b.studentName==='string'?b.studentName.trim():attempt.studentName||'';
+    const studentId=typeof b.studentId==='string'?b.studentId.trim():attempt.studentId||'';
+    if(!studentName||!studentId)throw Error('Enter your student name and student ID before submitting.');
+    if(attempt.results.length<attempt.lab.steps.length)throw Error('Complete all practical steps before submitting.');
+    const entry=records.recordSubmission({
+      studentName,
+      studentId,
+      experimentType:'generated',
+      experimentTitle:attempt.lab.title,
+      resultEntered:null,
+      resultExpected:null,
+      unit:null,
+      agrees:1,
+      trialsCount:attempt.results.length,
+      details:{
+        steps:attempt.results.map((r,i)=>({
+          step:i+1,
+          instruction:attempt.lab.steps[i]?.instruction,
+          operation:attempt.lab.steps[i]?.operation,
+          tool:attempt.lab.steps[i]?.tool,
+          observation:r.observation,
+          note:r.note
+        }))
+      }
+    });
+    attempt.submitted=entry;
+    return {submitted:true,studentName:entry.student_name,studentId:entry.student_id,submittedAt:entry.submitted_at};
   }
   if(path==='/api/draft') {
     const lines=String(b.handout||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
@@ -216,15 +251,31 @@ async function api(path,req,b) {
     return view(a);
   }
   if(path==='/api/submit') {
+    const studentName=typeof b.studentName==='string'?b.studentName.trim():'';
+    const studentId=typeof b.studentId==='string'?b.studentId.trim():'';
+    if (!studentName||!studentId) throw Error('Enter your student name and student ID before submitting.');
     if (t.stage!=='done') throw Error('Finish the current trial before submitting.');
     const group=concordant(a.trials,a.config.tolerance);
     const entered=Number(b.result);
     if (!Number.isFinite(entered)||entered<=0||!['mol/L','mmol/L'].includes(b.unit)) throw Error('Enter a positive concentration and select units.');
     if (group.length<2) throw Error('Record at least two concordant repeat titres.');
     const expected=concentration(group,a.config,b.unit);
-    a.report={group,expected,entered,unit:b.unit,agrees:Math.abs(entered-expected)<=expected*0.005,
-      trials:a.trials.map((n,i)=>({index:i,actual:round(n.delivered),outcome:n.final===null?'discarded':chemistry(a.config,a.acid,n).color,
-        readingError:n.final!==null && (Math.abs(n.initial-n.start)>0.011||Math.abs(n.final-round(n.start+n.delivered))>0.011)}))};
+    const agrees=Math.abs(entered-expected)<=expected*0.005;
+    const trialDetails=a.trials.map((n,i)=>({index:i,initial:n.initial,final:n.final,titre:n.final===null?null:titre(n),actual:round(n.delivered),outcome:n.final===null?'discarded':chemistry(a.config,a.acid,n).color,
+      readingError:n.final!==null && (Math.abs(n.initial-n.start)>0.011||Math.abs(n.final-round(n.start+n.delivered))>0.011)}));
+    a.report={studentName,studentId,group,expected,entered,unit:b.unit,agrees,trials:trialDetails};
+    records.recordSubmission({
+      studentName,
+      studentId,
+      experimentType:'titration',
+      experimentTitle:a.config.title||'Acid–base titration',
+      resultEntered:entered,
+      resultExpected:expected,
+      unit:b.unit,
+      agrees:agrees?1:0,
+      trialsCount:a.trials.length,
+      details:{kind:a.kind,concordantTitres:group,agrees,trials:trialDetails}
+    });
     if (!a.report.agrees) notify('calculation mismatch','Submitted a concentration that differs from the result calculated from the recorded concordant titres.');
     return view(a);
   }
