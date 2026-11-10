@@ -1,5 +1,6 @@
 import {DatabaseSync} from 'node:sqlite';
 import {randomUUID} from 'node:crypto';
+import {equipment} from './lab-capabilities.mjs';
 
 export const titration = 'hcl-naoh';
 const starter = [
@@ -38,12 +39,17 @@ export function openLabRecords(path) {
       id TEXT PRIMARY KEY, name TEXT NOT NULL, formula TEXT NOT NULL, cas TEXT NOT NULL,
       sds TEXT NOT NULL, aliases TEXT NOT NULL, searchable TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS equipment_keywords (
+      name TEXT PRIMARY KEY, kind TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS incidents (
       id TEXT PRIMARY KEY, attempt TEXT NOT NULL, trial INTEGER NOT NULL, run INTEGER NOT NULL,
       mode TEXT NOT NULL, code TEXT NOT NULL, evidence TEXT NOT NULL, created TEXT NOT NULL,
       reviewed INTEGER NOT NULL DEFAULT 0, UNIQUE(attempt, trial, run, code)
     );
   `);
+  const addEquipment=db.prepare('INSERT OR REPLACE INTO equipment_keywords VALUES (?, ?)');
+  for(const {kind,aliases} of equipment)for(const name of aliases)addEquipment.run(name,kind);
   const insert=db.prepare('INSERT OR REPLACE INTO chemicals VALUES (?, ?, ?, ?, ?, ?, ?)');
   const add=row=>insert.run(row.id,row.name,row.formula,row.cas,row.sds,row.aliases,
     normalize([row.id,row.name,row.formula,row.cas,row.aliases].join(' ')));
@@ -65,6 +71,11 @@ export function openLabRecords(path) {
       return {total:db.prepare('SELECT count(*) AS count FROM chemicals').get().count,
         rows:db.prepare('SELECT id,name,formula,cas,sds,aliases FROM chemicals WHERE instr(searchable, ?) > 0 ORDER BY name,id LIMIT 100').all(q)
           .map(row=>({...row,simulated:isSupported(row)}))};
+    },
+    inspectEquipment(text) {
+      const source=' '+tokens(text)+' ';
+      return db.prepare('SELECT name,kind FROM equipment_keywords ORDER BY name').all()
+        .filter(row=>source.includes(' '+tokens(row.name)+' '));
     },
     inspect(text) {
       const source=' '+tokens(text)+' ';

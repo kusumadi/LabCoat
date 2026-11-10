@@ -2,7 +2,9 @@ import {useEffect,useRef,useState} from 'react';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {apparatusIcon,LabIcon} from './LabIcon';
+import {benchItems} from './lab-capabilities.mjs';
 
+export type TransferOutcome={allowed:boolean;visual?:string;observation?:string;source?:string;spent?:boolean};
 type Props={
   tools:string[];
   materials:string[];
@@ -12,6 +14,7 @@ type Props={
   selected:string;
   onSelect:(tool:string)=>void;
   onDrop:(tool:string,kind:'transfer'|'mat')=>void;
+  onTransfer:(from:number,to:number,phase:'liquid'|'solid')=>Promise<TransferOutcome>;
   result?:{visual:string;operation:string;tool:string;direct?:boolean};
 };
 const cubic=(x:number)=>x*x*(3-2*x);
@@ -71,12 +74,7 @@ export function GeneratedBench(props:Props){
       return mesh(parent,new T.LatheGeometry(profile.map(([r,y])=>new T.Vector2(r,y)),40),glass);
     }
     const tabletop=material('#66648d');
-    const items=[
-      ...tools.flatMap(tool=>/^(two|2)\s+.*beakers$/i.test(tool)?
-        [{label:tool,name:'Beaker A',content:undefined},{label:tool,name:'Beaker B',content:undefined}]:
-        [{label:tool,name:tool,content:undefined}]),
-      ...materials.map(value=>({label:'',name:value.replace(/^solid:\s*/i,''),content:/^solid:/i.test(value)?'solid':'liquid'})),
-    ];
+    const items=benchItems(tools,materials);
     const columns=Math.min(8,Math.max(4,Math.ceil(Math.sqrt(items.length*1.8))));
     const rows=Math.ceil(items.length/columns);
     const back=Math.max(4,1.25+rows*1.7);
@@ -108,7 +106,7 @@ export function GeneratedBench(props:Props){
     overlay.setAttribute('aria-hidden','true');
     container.appendChild(overlay);
     const paints=['#53b9d9','#b695e2','#64bd9b','#e4bd75'];
-    const apparatusMeshes=items.map(({label,name,content},index)=>{
+    const apparatusMeshes=items.map(({id,label,name,content},index)=>{
       const kind=content==='solid'?'sample':content==='liquid'?'supply':apparatus?.[label]??apparatusIcon(label);
       const object=new T.Group();
       const rowSize=Math.min(columns,items.length-Math.floor(index/columns)*columns);
@@ -121,6 +119,20 @@ export function GeneratedBench(props:Props){
           break;
         case 'supply':
           vessel(object,[[0,0],[.33,0],[.36,.08],[.36,.67],[.25,.85],[.25,1.02]]);
+          break;
+        case 'burette':
+          mesh(object,box(.60,.08,.45),steel,0,.04);
+          mesh(object,cylinder(.035,1.55),steel,-.19,.81);
+          vessel(object,[[0,.28],[.05,.28],[.09,.41],[.09,1.55],[.12,1.58]]);
+          mesh(object,box(.25,.06,.06),mint,0,.36);
+          break;
+        case 'pipette':
+        case 'rod':
+          mesh(object,cylinder(.046,.84),kind==='rod'?glass:steel,0,.15).rotation.z=Math.PI/2;
+          if(kind==='pipette')mesh(object,new T.SphereGeometry(.10,16,12),mint,-.36,.15);
+          break;
+        case 'tube':
+          vessel(object,[[0,.02],[.13,.04],[.17,.14],[.17,.86],[.20,.89]]);
           break;
         case 'cylinder':
           mesh(object,cylinder(.32,.08),steel,0,.04);
@@ -161,7 +173,7 @@ export function GeneratedBench(props:Props){
         default:
           vessel(object,[[0,0],[.37,0],[.38,.07],[.38,.74],[.43,.78]]);
       }
-      const dimensions:Record<string,[number,number,number]>={supply:[.30,.66,1.02],cylinder:[.146,1.22,1.40],dish:[.43,.14,.29],
+      const dimensions:Record<string,[number,number,number]>={supply:[.30,.66,1.02],cylinder:[.146,1.22,1.40],dish:[.43,.14,.29],tube:[.145,.68,.89],
         flask:[.31,.36,1.03],beaker:[.34,.64,.78],tools:[.34,.64,.78]};
       const shape=dimensions[kind];
       const tint=new T.Color(content==='liquid'?paints[index%paints.length]:'#54bed1');
@@ -177,8 +189,8 @@ export function GeneratedBench(props:Props){
       ring.rotation.x=-Math.PI/2;
       const height=shape?.[2]??(kind==='filter'?.87:kind==='timer'||kind==='lens'?.76:.37);
       const hit=mesh(object,box(1.09,height+.12,1.03),new T.MeshBasicMaterial({visible:false}),0,height/2);
-      return {label,content,object,home,rest:home.clone(),ring,hit,tag,height,fill,shape,solid,baseTint:tint.clone(),
-        level:content==='liquid'?.83:0,displayLevel:content==='liquid'?.83:0,hasSolid:content==='solid',tint,fillPaint};
+      return {id,label,content,object,home,rest:home.clone(),ring,hit,tag,height,fill,shape,solid,baseTint:tint.clone(),
+        level:content==='liquid'?.42:0,displayLevel:content==='liquid'?.42:0,hasSolid:content==='solid',tint,fillPaint};
     });
     const ray=new T.Raycaster(), pointer=new T.Vector2();
     type Item=typeof apparatusMeshes[number];
@@ -191,7 +203,8 @@ export function GeneratedBench(props:Props){
     const offset=new T.Vector3();
     const start=new T.Vector2();
     let drag:{id:number;item:Item;moved:boolean;target?:Item}|undefined;
-    let transfer:{from:Item;to:Item;age:number;amount:number;solid:boolean;origin:T.Vector3;before:number;received:number}|undefined;
+    let checking=false,disposed=false,reaction:{item:Item;age:number}|undefined;
+    let transfer:{from:Item;to:Item;age:number;amount:number;solid:boolean;origin:T.Vector3;before:number;received:number;spent?:boolean}|undefined;
     const onMat=(position:T.Vector3)=>Math.abs(position.x)<2.65&&position.z>.05&&position.z<3.25;
     function aim(event:PointerEvent){
       const bounds=canvas.getBoundingClientRect();
@@ -199,7 +212,7 @@ export function GeneratedBench(props:Props){
       ray.setFromCamera(pointer,camera);
     }
     function down(event:PointerEvent){
-      if(event.button!==0||drag||transfer)return;
+      if(event.button!==0||drag||transfer||checking)return;
       aim(event);
       const hit=ray.intersectObjects(hits)[0];
       const item=hit&&byHit.get(hit.object);
@@ -227,11 +240,11 @@ export function GeneratedBench(props:Props){
         for(const hit of ray.intersectObjects(hits)){
           const item=byHit.get(hit.object);
           if(item&&item!==drag.item&&item.shape&&item.label&&
-            (drag.item.hasSolid?!item.hasSolid:item.level<.98)){drag.target=item;break;}
+            (drag.item.level<=.01?!item.hasSolid:item.level+drag.item.level<=1.001)){drag.target=item;break;}
         }
       }
     }
-    function end(event:PointerEvent){
+    async function end(event:PointerEvent){
       if(drag?.id!==event.pointerId)return;
       if(event.type==='pointerup')move(event);
       const {item,moved,target}=drag;
@@ -242,8 +255,15 @@ export function GeneratedBench(props:Props){
       if(!moved||event.type!=='pointerup')return;
       if(target){
         const solid=item.hasSolid&&item.level<=.01;
-        transfer={from:item,to:target,age:0,amount:solid?0:Math.min(item.level,1-target.level),
-          solid,origin:item.object.position.clone(),before:item.level,received:target.level};
+        checking=true;
+        const origin=item.object.position.clone();
+        let outcome:TransferOutcome;
+        try{outcome=await live.current.onTransfer(item.id,target.id,solid?'solid':'liquid');}
+        finally{checking=false;}
+        if(disposed||!outcome.allowed)return;
+        transfer={from:item,to:target,age:0,amount:solid?0:item.level,
+          solid,origin,before:item.level,received:target.level,spent:outcome.spent};
+        if(outcome.visual==='bubbles')reaction={item:target,age:0};
         if(!solid)target.tint.lerp(item.tint,transfer.amount/Math.max(.01,target.level+transfer.amount));
         const matching=apparatusMeshes.filter(row=>row.label===target.label);
         if(matching.length===1||(solid&&matching.every(row=>row===target||row.hasSolid)))
@@ -295,11 +315,12 @@ export function GeneratedBench(props:Props){
       if(benchReset!==seenReset){
         seenReset=benchReset;
         transfer=undefined;
+        reaction=undefined;
         evaporation=undefined;
         crystalDish=undefined;
         for(const item of apparatusMeshes){
           item.rest.copy(item.home);
-          item.level=item.content==='liquid'?.83:0;
+          item.level=item.content==='liquid'?.42:0;
           item.tint.copy(item.baseTint);
           item.solid.scale.setScalar(1);
           item.hasSolid=item.content==='solid';
@@ -328,7 +349,8 @@ export function GeneratedBench(props:Props){
       const streamProgress=cubic(T.MathUtils.clamp((flight-.30)/.37,0,1));
       if(transfer){
         const {from,to,solid,amount,before,received}=transfer;
-        if(solid&&flight>=.63){from.hasSolid=false;to.hasSolid=true;}
+        if(solid&&flight>=.63){from.hasSolid=false;to.hasSolid=!transfer.spent;}
+        if(transfer.spent&&flight>=.63)to.hasSolid=false;
         if(!solid){
 
           from.level=before-amount*streamProgress;
@@ -404,9 +426,15 @@ export function GeneratedBench(props:Props){
         specimen.position.set(i?.72:-.72,.18,0);
         specimen.scale.setScalar(visual==='osmosis'?1+(i?-.23:.22)*cubic(progress):1);
       }
+      if(reaction){
+        reaction.age+=delta;
+        if(reaction.age>2300||reduced.matches)reaction=undefined;
+      }
       for(const [i,bubble] of bubbles.entries()){
-        bubble.visible=visual==='bubbles'&&progress<1;
-        bubble.position.set(Math.sin(i*2.2)*.33,.09+((progress*1.4+i/8)%1)*.61,Math.cos(i*2.2)*.33);
+        const target=reaction?.item.object.position,phase=reaction?Math.max(0,(reaction.age-330)/1500):progress;
+        bubble.visible=target?phase>0:visual==='bubbles'&&progress<1;
+        bubble.position.set((target?target.x-working.position.x:0)+Math.sin(i*2.2)*.23,
+          .09+((phase*1.4+i/8)%1)*.61,(target?target.z-working.position.z:0)+Math.cos(i*2.2)*.23);
       }
       upperLayer.visible=visual==='layers';
       fallingSample.visible=!!transfer?.solid&&flight>=.32&&flight<.63;
@@ -444,6 +472,7 @@ export function GeneratedBench(props:Props){
     }
     frame=requestAnimationFrame(draw);
     return ()=>{
+      disposed=true;
       cancelAnimationFrame(frame);
       resize.disconnect();
       canvas.removeEventListener('pointerdown',down,true);

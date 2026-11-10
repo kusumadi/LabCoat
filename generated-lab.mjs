@@ -27,7 +27,7 @@ examples.osmosis.materials=['Distilled water','Concentrated salt solution','Soli
 examples.crystallisation.steps[0].setting={value:10,unit:'mL'};
 examples.osmosis.steps[2].setting={value:30,unit:'min'};
 export const visuals=['neutral','liquid','crystals','samples','osmosis','bubbles','layers','precipitate'];
-export const apparatusKinds=['beaker','flask','cylinder','dish','balance','timer','notebook','lens','filter','blot','heat','tools'];
+export const apparatusKinds=['beaker','flask','cylinder','dish','balance','timer','notebook','lens','filter','blot','heat','tools','burette','pipette','rod','tube'];
 function field(value,max){
   return typeof value==='string'&&value.trim()&&value.length<=max;
 }
@@ -38,6 +38,11 @@ export function validateLab(lab) {
   if(lab.materials!==undefined&&(!Array.isArray(lab.materials)||lab.materials.length>24||
     lab.materials.some(name=>!field(name,80)||!name.replace(/^solid:\s*/i,'').trim())))
     throw Error('List up to 24 bench materials, with up to 80 characters per name.');
+  if(lab.benchTools!==undefined&&(!Array.isArray(lab.benchTools)||lab.benchTools.length>24||
+    lab.benchTools.some(item=>!field(item?.name,80)||!apparatusKinds.includes(item.kind))))
+    throw Error('Bench apparatus must use a supported geometry and name.');
+  if(lab.blockers!==undefined&&(!Array.isArray(lab.blockers)||lab.blockers.length>72||lab.blockers.some(item=>!field(item,500))))
+    throw Error('Invalid lecturer review checklist.');
   const normalise=s=>s.trim().replace(/\s+/g,' ');
   for(const step of lab.steps){
     if(!step||!field(step.source,1200)||!normalise(lab.handout).includes(normalise(step.source))||
@@ -45,8 +50,12 @@ export function validateLab(lab) {
       !operations.includes(step.operation)||!visuals.includes(step.visual)||
       (step.apparatus!==undefined&&!apparatusKinds.includes(step.apparatus)))
       throw Error('Review every step. Each one needs a handout excerpt, a supported operation, an apparatus item and an observation.');
+    if(step.transferMaterial!==undefined&&(!['Measure','Transfer','Mix'].includes(step.operation)||
+      !lab.materials?.some(name=>name.replace(/^solid:\s*/i,'')===step.transferMaterial)))
+      throw Error('A material used in a transfer step must be present on the bench.');
     if(step.setting!==undefined&&(!Number.isFinite(step.setting?.value)||!field(step.setting.unit,20)||
-      !step.source.match(/-?\d+(?:\.\d+)?/g)?.some(number=>Number(number)===step.setting.value)))
+      ![...step.source.matchAll(/(-?\d+(?:\.\d+)?)\s*([^\s\d,;:!?()]+)/g)].some(([,number,unit])=>
+        Number(number)===step.setting.value&&unit.replace(/\.$/,'')===step.setting.unit)))
       throw Error('A numeric setting must use a value written in the handout excerpt and include its unit.');
   }
   return lab;

@@ -51,6 +51,8 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
   const [examples,setExamples]=useState<LabExample[]>([]);
   const [review,setReview]=useState<string[]>([]);
   const [reviewed,setReviewed]=useState(false);
+  const [generation,setGeneration]=useState<{blockers:string[];coverage:{source:string;step:number|null}[];equipment:{name:string;kind:string}[]}>();
+  const [generationMode,setGenerationMode]=useState('');
   async function work(task:()=>Promise<void>){
     setBusy(true);setNotice('');setError('');
     try{await task();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
@@ -81,8 +83,11 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
           request={attachment:{name:file.name,data:encoded}};
         }
       }
-      const data=await api<{lab:Generated;review:string[];chemicals:ChemicalMatch[]}>('generate-lab',request);
-      if(file){setHandout(data.lab.handout);setAttachment(undefined);}
+      const data=await api<{lab?:Generated;config?:Config;handout?:string;review:string[];chemicals:ChemicalMatch[];mode:string;
+        blockers?:string[];coverage?:{source:string;step:number|null}[];equipment?:{name:string;kind:string}[]}>('generate-lab',request);
+      if(file){setHandout(data.handout??data.lab?.handout??text);setAttachment(undefined);}
+      if(data.config){setConfig(data.config);setExperiment('hcl-naoh');setNotice('Opened the dedicated titration model. Review the settings before publishing.');}
+      setGeneration({blockers:data.blockers??[],coverage:data.coverage??[],equipment:data.equipment??[]});setGenerationMode(data.mode);
       setGenerated(data.lab);setReview(data.review);setMatches(data.chemicals);setBlocked('');setDirty(false);
       return;
     }
@@ -91,7 +96,9 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
   }
   const draft=()=>work(()=>reviewHandout(handout,experiment,attachment));
   return <><div className="page-intro"><p className="kicker">PRACTICAL AUTHORING / 01</p><h1>Lecturer studio</h1><p>Map your procedure to the teaching bench, review its settings and publish it for students.</p></div>
-  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button>{preview.experiment==='generated'?<GeneratedLab api={api} preview={preview as Generated}/>:<Student published preview={preview as Config}/>}</>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Attach or paste a chemistry handout to generate a 3D practical.</p>
+  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button>{preview.experiment==='generated'?<GeneratedLab api={api} preview={preview as Generated}/>:<Student published preview={preview as Config}/>}</>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Give LabCoat’s AI the full handout to draft a 3D practical.</p>
+    <details className="lab-disclosure"><summary>What the AI needs</summary><p>Include the full procedure, all materials and apparatus, reagent forms and concentrations, amounts, timings, conditions, and expected observations. Include any tables or figures the procedure depends on.</p>
+    <p>Use a readable PDF or DOCX, or paste text. Custom handouts are sent to the configured AI provider. Check the transcription and resolve missing information before publishing.</p></details>
     <button disabled={busy} onClick={()=>work(async()=>{
       const sample=await api<{handout:string;experiment:string}>('sample',{});
       setAttachment(undefined);setHandout(sample.handout);setExperiment(sample.experiment);await reviewHandout(sample.handout,sample.experiment);
@@ -100,7 +107,7 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
       setAttachment(undefined);setHandout(item.handout);setExperiment('generated');await reviewHandout(item.handout,'generated');
     })}><LabIcon name={item.id==='osmosis'?'drop':'dish'} size={17}/> {item.id==='osmosis'?'Osmosis':'Crystallisation'}</button>)}
     <label className="field">Experiment type<select value={experiment} disabled={busy||!!attachment} onChange={e=>{setExperiment(e.target.value);setDirty(true);}}>
-      <option value="generated">Generate from any handout</option><option value="hcl-naoh">Dedicated HCl–NaOH titration</option>
+      <option value="generated">AI handout generator</option><option value="hcl-naoh">Dedicated HCl–NaOH titration</option>
     </select></label>
     <label className="field">Attach handout
       <input type="file" accept=".pdf,.docx,.txt,.md" disabled={busy} onChange={e=>{
@@ -113,12 +120,22 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
     </label>
     {attachment&&<div className="row"><small>{attachment.name} will be used for generation.</small><button disabled={busy} onClick={()=>setAttachment(undefined)}>Remove file</button></div>}
     <label className="field">Handout text<textarea rows={13} disabled={busy||!!attachment} maxLength={12000} value={handout} onChange={e=>{setHandout(e.target.value);setDirty(true);}} placeholder="Paste your practical instructions here…"/></label>
-    <button className="primary" disabled={busy||(!attachment&&!handout.trim())} onClick={draft}><LabIcon name="sparkle" size={17}/>{busy?'Working…':experiment==='generated'?'Generate practical':'Draft mappings'}</button> <small>{mode}</small>
+    <button className="primary" disabled={busy||(!attachment&&!handout.trim())} onClick={draft}><LabIcon name="sparkle" size={17}/>{busy?'Reading and drafting…':experiment==='generated'?'Generate practical':'Draft mappings'}</button> <small>{!dirty&&experiment==='generated'&&generationMode?generationMode:mode}</small>
     </section><section className="panel"><p className="kicker">02 / REVIEW</p><h2>Bench mappings</h2>
     {!dirty&&blocked&&<p className="warning" role="status">{blocked}</p>}
     {!dirty&&matches.length>0&&<p>Inventory matches · {matches.map(c=>c.name+(c.simulated?'':' (inventory only)')).join(', ')}</p>}
-    {experiment==='generated'?(!generated?<p>Generate a draft to review the procedure and apparatus.</p>:<>
+    {!dirty&&experiment==='generated'&&generation&&<>
+      {generation.blockers.length>0&&<div className="warning" role="status"><strong>Resolve before publishing</strong>
+        <ul>{generation.blockers.map((item,i)=><li key={i}>{item}</li>)}</ul>
+        <p>Update the handout and regenerate. Procedures that require a missing simulation model need that model before publishing.</p></div>}
+      {generation.equipment.length>0&&<p>Equipment keywords · {[...new Set(generation.equipment.map(item=>item.name))].join(', ')}</p>}
+      {generation.coverage.length>0&&<details className="lab-disclosure"><summary>Procedure coverage · {generation.coverage.filter(row=>row.step!==null).length} / {generation.coverage.length}</summary>
+        <ol>{generation.coverage.map((row,i)=><li key={i}>{row.source} · {row.step===null?'Unmapped':'Step '+(row.step+1)}</li>)}</ol></details>}
+    </>}
+    {experiment==='generated'?(!generated?<><p>Generate a draft to review the procedure and apparatus.</p>
+      {!dirty&&review.length>0&&<ul>{review.map((item,i)=><li key={i}>{item}</li>)}</ul>}</>:<>
       <h3>{generated.title}</h3>
+      {!!generated.benchTools?.length&&<p>Bench apparatus · {generated.benchTools.map(item=>item.name).join(', ')}</p>}
       <p>Review each action and representative observation against the source. Preview the bench before publishing.</p>
       {review.length>0&&<ul className="warning">{review.map((item,i)=><li key={i}>{item}</li>)}</ul>}
       <label className="field">Materials on the bench (one per line)<textarea rows={3} maxLength={1944}
@@ -132,7 +149,7 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
         }}/></label>)}
       </li>)}</ol>
       <label className="check"><input type="checkbox" disabled={dirty||busy} checked={reviewed&&!dirty} onChange={e=>setReviewed(e.target.checked)}/> I reviewed the instructions, apparatus and observations against the handout.</label>
-      <div className="row"><button disabled={busy||dirty} onClick={()=>setPreview({...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean)})}>Student preview</button><button className="primary" disabled={busy||dirty||!reviewed} onClick={()=>work(async()=>{await api('publish',{...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean),reviewed});publish();setNotice('Practical published.');})}>Publish practical</button></div>
+      <div className="row"><button disabled={busy||dirty} onClick={()=>setPreview({...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean)})}>Student preview</button><button className="primary" disabled={busy||dirty||!reviewed||!!generated.blockers?.length} onClick={()=>work(async()=>{await api('publish',{...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean),reviewed});publish();setNotice('Practical published.');})}>Publish practical</button></div>
     </>):!config?<p>{blocked?'Publication requires a compatible simulation model.':'Draft a procedure to review its equipment and actions.'}</p>:<><p>Review the source beside each bench action. Selecting an action confirms that you have resolved the warning.</p>
     <ol className="mapping">{config.steps.map((s,i)=><li key={i}><div>{s.source}{s.warning&&<small className="warning">{s.warning}</small>}</div><select aria-label={'Action for instruction '+(i+1)} value={s.action} onChange={e=>{const action=e.target.value;setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,action,warning:action?'':'Select a supported action.'}:x)});}}><option value="">Unresolved</option>{steps.map(key=><option key={key} value={key}>{labels[key]}</option>)}</select>{s.action&&<small>{catalogue[s.action]?.join(' · ')}</small>}{s.warning&&s.action&&<button onClick={()=>setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,warning:''}:x)})}>Confirm mapping</button>}</li>)}</ol>
     <h2>Practical settings</h2><div className="fields">
