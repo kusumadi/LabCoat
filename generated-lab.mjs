@@ -24,7 +24,8 @@ export const examples={
 };
 examples.crystallisation.steps[0].setting={value:10,unit:'mL'};
 examples.osmosis.steps[2].setting={value:30,unit:'min'};
-const visuals=['neutral','liquid','crystals','samples','osmosis'];
+export const visuals=['neutral','liquid','crystals','samples','osmosis','bubbles','layers','precipitate'];
+export const apparatusKinds=['beaker','flask','cylinder','dish','balance','timer','notebook','lens','filter','blot','heat','tools'];
 function field(value,max){
   return typeof value==='string'&&value.trim()&&value.length<=max;
 }
@@ -36,7 +37,8 @@ export function validateLab(lab) {
   for(const step of lab.steps){
     if(!step||!field(step.source,1200)||!normalise(lab.handout).includes(normalise(step.source))||
       !field(step.instruction,500)||!field(step.tool,80)||!field(step.observation,500)||
-      !operations.includes(step.operation)||!visuals.includes(step.visual))
+      !operations.includes(step.operation)||!visuals.includes(step.visual)||
+      (step.apparatus!==undefined&&!apparatusKinds.includes(step.apparatus)))
       throw Error('Review every step. Each one needs a handout excerpt, a supported operation, an apparatus item and an observation.');
     if(step.setting!==undefined&&(!Number.isFinite(step.setting?.value)||!field(step.setting.unit,20)||
       !step.source.match(/-?\d+(?:\.\d+)?/g)?.some(number=>Number(number)===step.setting.value)))
@@ -54,5 +56,5 @@ export function executeStep(lab,index,input) {
   const note=typeof input.note==='string'?input.note.trim():'';
   if(note.length>1000)throw Error('Keep your notebook entry under 1,000 characters.');
   if(step.operation==='Record'&&!note)throw Error('Enter your result in the notebook before continuing.');
-  return {observation:step.observation,visual:step.visual,note};
+  return {observation:step.observation,visual:step.visual,operation:step.operation,tool:step.tool,note};
 }

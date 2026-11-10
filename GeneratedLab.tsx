@@ -1,11 +1,12 @@
 import {useState} from 'react';
+import {GeneratedBench} from './GeneratedBench';
 import {apparatusIcon,LabIcon,operationIcons} from './LabIcon';
-export type GeneratedStep={source:string;instruction:string;operation:string;tool:string;observation:string;visual:string;setting?:{value:number;unit:string}};
+export type GeneratedStep={source:string;instruction:string;operation:string;tool:string;observation:string;visual:string;apparatus?:string;setting?:{value:number;unit:string}};
 export type Generated={experiment:'generated';title:string;handout:string;steps:GeneratedStep[]};
 export type LabExample={id:string;title:string;handout:string};
 type Api=<T>(path:string,body?:object)=>Promise<T>;
-type Session={id:string;title:string;handout:string;tools:string[];operations:string[];total:number;instruction:string;unit?:string};
-type Result={observation:string;visual:string;note:string};
+type Session={id:string;title:string;handout:string;tools:string[];apparatus?:Record<string,string>;operations:string[];total:number;instruction:string;unit?:string};
+type Result={observation:string;visual:string;tool:string;operation:string;note:string};
 
 export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;title?:string}){
   const [session,setSession]=useState<Session>();
@@ -33,11 +34,10 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
       <details className="lab-disclosure"><summary><LabIcon name="notebook" size={17}/> Handout</summary><p className="handout-copy">{session.handout}</p></details>
       <div className="generated-grid">
         <div className="generated-bench" aria-label="Apparatus visualisation">
-          <div className="bench-badge"><LabIcon name={tool?apparatusIcon(tool):'flask'} size={20}/> {tool||'Work surface'}</div>
-          {(!result||result.visual==='neutral')&&tool?<div className="apparatus-preview" key={tool}><LabIcon name={apparatusIcon(tool)} size={96}/></div>:<div className="lab-vessel" key={results.length} data-visual={result?.visual??'neutral'}>
-            <div className="lab-liquid"/><div className="lab-grains">{Array.from({length:9},(_,i)=><i key={i}/>)}</div>
-            <div className="lab-specimens"><i>A</i><i>B</i></div>
-          </div>}
+          <div className="bench-badge"><LabIcon name={tool?apparatusIcon(tool):'flask'} size={20}/> {tool||result?.tool||'Work surface'}</div>
+          <GeneratedBench tools={session.tools} apparatus={session.apparatus} selected={tool} result={result}
+            onSelect={item=>{if(!busy&&instruction)setTool(item);}}/>
+          <p className="bench-controls-hint">Click apparatus to select · Drag to orbit · Scroll to zoom</p>
           {result&&<p className="bench-observation" role="status"><LabIcon name="eye" size={18}/>{result.observation}</p>}
         </div>
         {instruction?<form onSubmit={e=>{e.preventDefault();void work(async()=>{

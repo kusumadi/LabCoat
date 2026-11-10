@@ -36,6 +36,7 @@ function Home({published}:{published:boolean}){
 }
 function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
   const [handout,setHandout]=useState('');
+  const [attachment,setAttachment]=useState<File>();
   const [experiment,setExperiment]=useState('generated');
   const [matches,setMatches]=useState<ChemicalMatch[]>([]);
   const [blocked,setBlocked]=useState('');
@@ -62,32 +63,57 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
       if(data.config){setConfig(data.config);setExperiment(data.config.experiment??'hcl-naoh');setHandout(data.config.steps.map(s=>s.source).join('\n'));}
     }).catch(e=>setError(e.message));
   },[]);
-  async function reviewHandout(text:string,kind:string){
+  async function reviewHandout(text:string,kind:string,file?:File){
     setDirty(true);
     setReviewed(false);
     if(kind==='generated'){
-      const data=await api<{lab:Generated;review:string[];chemicals:ChemicalMatch[]}>('generate-lab',{handout:text});
+      let request:{handout?:string;attachment?:{name:string;data:string}}={handout:text};
+      if(file){
+        if(/\.(txt|md)$/i.test(file.name)){
+          request={handout:await file.text()};
+        }else{
+          const encoded=await new Promise<string>((resolve,reject)=>{
+            const reader=new FileReader();
+            reader.onerror=()=>reject(Error('Could not read this handout.'));
+            reader.onload=()=>resolve(String(reader.result).split(',')[1]??'');
+            reader.readAsDataURL(file);
+          });
+          request={attachment:{name:file.name,data:encoded}};
+        }
+      }
+      const data=await api<{lab:Generated;review:string[];chemicals:ChemicalMatch[]}>('generate-lab',request);
+      if(file){setHandout(data.lab.handout);setAttachment(undefined);}
       setGenerated(data.lab);setReview(data.review);setMatches(data.chemicals);setBlocked('');setDirty(false);
       return;
     }
     const data=await api<{config?:Config;chemicals:ChemicalMatch[];blocked?:string}>('draft',{handout:text,experiment:kind});
     setConfig(data.config);setMatches(data.chemicals);setBlocked(data.blocked??'');setDirty(false);
   }
-  const draft=()=>work(()=>reviewHandout(handout,experiment));
+  const draft=()=>work(()=>reviewHandout(handout,experiment,attachment));
   return <><div className="page-intro"><p className="kicker">PRACTICAL AUTHORING / 01</p><h1>Lecturer studio</h1><p>Map your procedure to the teaching bench, review its settings and publish it for students.</p></div>
-  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button>{preview.experiment==='generated'?<GeneratedLab api={api} preview={preview as Generated}/>:<Student published preview={preview as Config}/>}</>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Paste a chemistry handout to generate a practical, or load a sample to try the workflow.</p>
+  {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button>{preview.experiment==='generated'?<GeneratedLab api={api} preview={preview as Generated}/>:<Student published preview={preview as Config}/>}</>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Attach or paste a chemistry handout to generate a 3D practical.</p>
     <button disabled={busy} onClick={()=>work(async()=>{
       const sample=await api<{handout:string;experiment:string}>('sample',{});
-      setHandout(sample.handout);setExperiment(sample.experiment);await reviewHandout(sample.handout,sample.experiment);
+      setAttachment(undefined);setHandout(sample.handout);setExperiment(sample.experiment);await reviewHandout(sample.handout,sample.experiment);
     })}><LabIcon name="flask" size={17}/> Titration</button>
     {examples.map(item=><button key={item.id} disabled={busy} onClick={()=>work(async()=>{
-      setHandout(item.handout);setExperiment('generated');await reviewHandout(item.handout,'generated');
+      setAttachment(undefined);setHandout(item.handout);setExperiment('generated');await reviewHandout(item.handout,'generated');
     })}><LabIcon name={item.id==='osmosis'?'drop':'dish'} size={17}/> {item.id==='osmosis'?'Osmosis':'Crystallisation'}</button>)}
-    <label className="field">Experiment type<select value={experiment} onChange={e=>{setExperiment(e.target.value);setDirty(true);}}>
+    <label className="field">Experiment type<select value={experiment} disabled={busy||!!attachment} onChange={e=>{setExperiment(e.target.value);setDirty(true);}}>
       <option value="generated">Generate from any handout</option><option value="hcl-naoh">Dedicated HCl–NaOH titration</option>
     </select></label>
-    <label className="field">Handout text<textarea rows={13} maxLength={12000} value={handout} onChange={e=>{setHandout(e.target.value);setDirty(true);}} placeholder="Paste your practical instructions here…"/></label>
-    <button className="primary" disabled={busy||!handout.trim()} onClick={draft}><LabIcon name="sparkle" size={17}/>{experiment==='generated'?'Generate practical':'Draft mappings'}</button> <small>{mode}</small>
+    <label className="field">Attach handout
+      <input type="file" accept=".pdf,.docx,.txt,.md" disabled={busy} onChange={e=>{
+        const file=e.currentTarget.files?.[0];
+        e.currentTarget.value='';
+        if(!file)return;
+        if(file.size>5*1024*1024||!/\.(pdf|docx|txt|md)$/i.test(file.name)){setError('Choose a PDF, DOCX, TXT or Markdown file under 5 MB.');return;}
+        setError('');setAttachment(file);setExperiment('generated');setDirty(true);setReviewed(false);
+      }}/>
+    </label>
+    {attachment&&<div className="row"><small>{attachment.name} will be used for generation.</small><button disabled={busy} onClick={()=>setAttachment(undefined)}>Remove file</button></div>}
+    <label className="field">Handout text<textarea rows={13} disabled={busy||!!attachment} maxLength={12000} value={handout} onChange={e=>{setHandout(e.target.value);setDirty(true);}} placeholder="Paste your practical instructions here…"/></label>
+    <button className="primary" disabled={busy||(!attachment&&!handout.trim())} onClick={draft}><LabIcon name="sparkle" size={17}/>{busy?'Working…':experiment==='generated'?'Generate practical':'Draft mappings'}</button> <small>{mode}</small>
     </section><section className="panel"><p className="kicker">02 / REVIEW</p><h2>Bench mappings</h2>
     {!dirty&&blocked&&<p className="warning" role="status">{blocked}</p>}
     {!dirty&&matches.length>0&&<p>Inventory matches · {matches.map(c=>c.name+(c.simulated?'':' (inventory only)')).join(', ')}</p>}
