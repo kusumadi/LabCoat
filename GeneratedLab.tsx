@@ -1,11 +1,12 @@
 import {useRef,useState} from 'react';
 import {GeneratedBench,type TransferOutcome} from './GeneratedBench';
 import {apparatusIcon,LabIcon,operationIcons} from './LabIcon';
+import {PracticalProgress,ReportReceipt} from './PracticalProgress';
 export type GeneratedStep={source:string;instruction:string;operation:string;tool:string;observation:string;visual:string;apparatus?:string;setting?:{value:number;unit:string;source?:string};measurementQuestion?:string;measurementAnswer?:string};
 export type Generated={experiment:'generated';title:string;handout:string;steps:GeneratedStep[];materials?:string[];benchTools?:{name:string;kind:string}[];blockers?:string[];coverage?:{source:string;step:number|null}[]};
 export type LabExample={id:string;title:string;handout:string};
 type Api=<T>(path:string,body?:object)=>Promise<T>;
-type Session={id:string;title:string;handout:string;tools:string[];materials:string[];apparatus?:Record<string,string>;operations:string[];total:number;instruction:string;unit?:string};
+type Session={id:string;title:string;handout:string;tools:string[];materials:string[];apparatus?:Record<string,string>;operations:string[];total:number;procedure?:string[];instruction:string;unit?:string};
 type Result={observation:string;visual:string;tool:string;operation:string;note:string;direct?:boolean};
 
 export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;title?:string}){
@@ -85,7 +86,7 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
             }}/>
           <p className="bench-controls-hint">Drag equipment to arrange it. Drop a filled vessel or sample onto a vessel to transfer it. To use a selected action, drag its tool onto the mat. Drag empty space to orbit.</p>
           <div className="row bench-view-tools"><button type="button" onClick={()=>setViewReset(viewReset+1)}><LabIcon name="eye" size={16}/> Full bench</button>
-            <button type="button" disabled={busy||transferPending} onClick={()=>work(async()=>{
+            <button type="button" disabled={!instruction||busy||transferPending} onClick={()=>work(async()=>{
               await api('generated-reset',{id:session.id});setReaction(undefined);setBenchReset(value=>value+1);
             })}><LabIcon name="bench" size={16}/> Reset setup</button></div>
           {transferPending&&<p role="status">Checking transfer…</p>}
@@ -96,8 +97,10 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
           {error&&<p className="error" role="alert">{error}</p>}
           {result&&<p className="bench-observation" role="status"><LabIcon name="eye" size={18}/>{result.observation}</p>}
         </div>
-        {instruction?<form onSubmit={e=>{e.preventDefault();void run(tool,operation);}}>
-          <div className="lab-progress"><progress value={results.length} max={session.total} aria-label="Practical progress"/><span>{results.length+1} / {session.total}</span></div>
+        <section className="panel controls">
+        <PracticalProgress labels={session.procedure??Array.from({length:session.total},(_,index)=>'Step '+(index+1))}
+          completed={results.length} context={preview?'Preview':undefined}/>
+        {instruction?<form className="current" onSubmit={e=>{e.preventDefault();void run(tool,operation);}}>
           <h2>{instruction}</h2>
           <fieldset><legend>Apparatus</legend><div className="lab-picker apparatus-picker">
             {session.tools.map(item=><button key={item} type="button" disabled={busy} aria-label={item} title={item} aria-pressed={tool===item} onClick={()=>setTool(item)}><LabIcon name={session.apparatus?.[item]??apparatusIcon(item)}/></button>)}
@@ -111,8 +114,9 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
           {operation==='Record'?<label className="field">Notebook entry<textarea rows={3} maxLength={1000} value={note} onChange={e=>setNote(e.target.value)}/></label>:
             <details className="lab-disclosure"><summary><LabIcon name="notebook" size={16}/> Add a note</summary><label className="field">Notebook entry<textarea rows={2} maxLength={1000} value={note} onChange={e=>setNote(e.target.value)}/></label></details>}
           <button className="primary" disabled={busy||transferPending||!tool||!operation}><LabIcon name={operation==='Wait'?'timer':'play'} size={17}/>{operation==='Wait'?'Advance time':'Run action'}</button>
-        </form>:<div role="status"><h2>Practical complete</h2><p>Review your observations and notebook entries below.</p>
-          {reportCode&&<p>Saved. Share this code with your lecturer on request: <code>{reportCode}</code></p>}</div>}
+        </form>:<div className="current"><h2>Practical complete</h2><ReportReceipt code={reportCode} preview={!!preview}/>
+          <p>Review your observations and notebook entries below.</p></div>}
+        </section>
       </div>
       <details className="lab-disclosure" open={!instruction}><summary><LabIcon name="notebook" size={18}/> Notebook · {results.length}</summary>
       <ol>{results.map((row,index)=><li key={index}><p>{row.observation}{row.note&&<><br/><strong>Your entry</strong> · {row.note}</>}</p></li>)}</ol></details>

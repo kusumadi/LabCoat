@@ -3,7 +3,7 @@ import {useEffect,useState} from 'react';
 type ReplayEvent={seconds:number;label:string;detail:string};
 type Titration={entered:number;expected:number;unit:string;agrees:boolean;group:number[];
   trials:{index:number;actual:number;outcome:string;readingError:boolean}[]};
-type Report={title:string;mode:string;completed:string;duration:number;events:ReplayEvent[];omitted:number;
+type Report={title:string;mode:string;completed:string;duration:number;events:ReplayEvent[];omitted:number;preview?:boolean;
   completedSteps?:number;notebook?:string[];titration?:Titration};
 type Api=<T>(path:string,body?:object)=>Promise<T>;
 
@@ -36,7 +36,7 @@ function ReportView({report,example}:{report:Report;example:boolean}){
   const event=report.events[step];
   const result=report.titration;
   return <article className="report attempt-report">
-    <p className="kicker">{example?'SAMPLE DATA':'COMPLETED PRACTICAL'}</p>
+    <p className="kicker">{example?'SAMPLE DATA':report.preview?'LECTURER PREVIEW':'COMPLETED PRACTICAL'}</p>
     <h3>{report.title}</h3>
     <p>{report.mode} · {new Date(report.completed).toLocaleString()} · {elapsed(report.duration)}</p>
     {result&&<>

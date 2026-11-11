@@ -6,6 +6,7 @@ import {LabIcon} from './LabIcon';
 import {GeneratedLab,type Generated,type LabExample} from './GeneratedLab';
 import {LabRecords,type ChemicalMatch} from './LabRecords';
 import {LayoutControls} from './LayoutControls';
+import {PracticalProgress,ReportReceipt} from './PracticalProgress';
 import {aligned,defaultEnvironment,type Environment,type Layout} from './environment.mjs';
 import './style.css';
 
@@ -250,8 +251,9 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
     <p className="layout-help">{arrange?'Drag objects to reposition them.':'Drag the bench view to orbit. Click equipment to use it.'} Shift + scroll to zoom.</p>
     {arrange&&<LayoutControls layout={layout} reset={environment.layout} onChange={setLayout}/>}
   </div>}</section>
-  <section className="panel controls"><p className="kicker">PROCEDURE / {name(a.index).toUpperCase()}</p>
-  <ol className="progress">{steps.map((s,i)=><li key={s} className={s===stage?'active':''} aria-current={s===stage?'step':undefined}><span>{steps.indexOf(stage)>i||stage==='done'?'✓':i+1}</span>{labels[s]}</li>)}</ol>
+  <section className="panel controls">
+  <PracticalProgress labels={steps.map(step=>labels[step])} completed={stage==='done'?steps.length:steps.indexOf(stage)} context={name(a.index)}/>
+  {a.report&&<><h2>Practical complete</h2><ReportReceipt code={a.reportCode} preview={!!preview}/></>}
   {!a.report&&<div className="current"><h2>{labels[stage]}</h2><p>{instruction||'Use repeat titres for your concentration calculation.'}</p>
   {['prepare','transfer','indicator'].includes(stage)&&<button className="primary" disabled={busy} onClick={()=>act(stage)}>{labels[stage]}</button>}
   {experiments&&stage==='indicator'&&<button disabled={busy} onClick={()=>act('skip-indicator')}>Try without indicator</button>}
@@ -266,7 +268,7 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   </section></div>
   <section className="panel notebook"><p className="kicker">EXPERIMENT RECORD</p><h2>Lab notebook</h2><div className="table-wrap"><table><thead><tr><th>Trial</th><th>Initial (mL)</th><th>Final (mL)</th><th>Titre (mL)</th>{a.kind==='practice'&&<th>Observation</th>}</tr></thead><tbody>{a.notes.map(n=><tr key={n.index}><th>{name(n.index)}</th><td>{fmt(n.initial)}</td><td>{fmt(n.final)}</td><td>{fmt(n.titre)}</td>{a.kind==='practice'&&<td>{n.outcome||'—'}</td>}</tr>)}</tbody></table></div>
   <p>Use at least two repeat titres within {a.config.tolerance.toFixed(2)} mL of one another. Calculate the HCl concentration from the mean titre and the 1:1 reaction.</p>
-  {a.report?<div className="report" role="status"><h3>Submission feedback</h3>{a.reportCode&&<p>Saved. Share this code with your lecturer on request: <code>{a.reportCode}</code></p>}<p>{a.report.agrees?'Your result agrees with your recorded titres.':'Check the calculation from your recorded titres.'} Your value: {a.report.entered} {a.report.unit}. Calculated value: {a.report.expected.toPrecision(5)} {a.report.unit} from {a.report.group.map(fmt).join(', ')} mL.</p><ul>{a.report.trials.map(t=><li key={t.index}>{name(t.index)} · {t.outcome} · actual delivery {fmt(t.actual)} mL{t.readingError?' · review your meniscus readings':''}</li>)}</ul></div>:
+  {a.report?<div className="report" role="status"><h3>Submission feedback</h3><p>{a.report.agrees?'Your result agrees with your recorded titres.':'Check the calculation from your recorded titres.'} Your value: {a.report.entered} {a.report.unit}. Calculated value: {a.report.expected.toPrecision(5)} {a.report.unit} from {a.report.group.map(fmt).join(', ')} mL.</p><ul>{a.report.trials.map(t=><li key={t.index}>{name(t.index)} · {t.outcome} · actual delivery {fmt(t.actual)} mL{t.readingError?' · review your meniscus readings':''}</li>)}</ul></div>:
   <form className="row" onSubmit={e=>{e.preventDefault();void work(async()=>setAttempt(await api<Attempt>('submit',{id,result,unit})));}}><label className="field">Calculated HCl concentration<input required type="number" step="any" min="0" value={result} onChange={e=>setResult(e.target.value)}/></label><label className="field">Units<select value={unit} onChange={e=>setUnit(e.target.value)}><option>mol/L</option><option>mmol/L</option></select></label><button className="primary" disabled={busy||stage!=='done'||a.notes.filter(n=>n.index>0&&n.final!==null).length<2}>Submit concentration</button></form>}
   </section></>;
 }

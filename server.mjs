@@ -26,13 +26,11 @@ const generatedAttempts = new Map();
 const mode = process.env.OPENAI_API_KEY ? 'Live AI' : 'Scripted demo';
 const newReplay=()=>({started:Date.now(),events:[],omitted:0,reportCode:randomUUID().replaceAll('-','')});
 function recordEvent(attempt,label,detail) {
-  if(attempt.preview)return;
   if(attempt.events.length>=3000){attempt.omitted++;return;}
   attempt.events.push({seconds:Math.floor((Date.now()-attempt.started)/1000),label,detail});
 }
 function archiveAttempt(attempt,summary) {
-  if(attempt.preview)return;
-  records.saveAttempt(attempt.reportCode,{...summary,events:attempt.events,omitted:attempt.omitted,
+  records.saveAttempt(attempt.reportCode,{...summary,preview:attempt.preview,events:attempt.events,omitted:attempt.omitted,
     duration:Math.floor((Date.now()-attempt.started)/1000)});
 }
 const publicConfig = c => ({volume:c.volume,base:c.base,tolerance:c.tolerance,hints:c.hints,environment:c.environment,
@@ -78,7 +76,7 @@ function view(a) {
     observation:response.color, pink:response.pink, plume:t.hasIndicator&&t.unmixed>0, hasIndicator:t.hasIndicator, held:t.held, readyToObserve:t.delivered>0&&!t.unmixed,
     notes:a.trials.map((n,i)=>({initial:n.initial,final:n.final,titre:n.final===null?null:titre(n),
       ...(a.kind==='practice' && n.final!==null?{outcome:chemistry(a.config,a.acid,n).color}:{}),index:i})),
-    report:a.report,reportCode:a.report&&!a.preview?a.reportCode:undefined};
+    report:a.report,reportCode:a.report?a.reportCode:undefined};
 }
 async function api(path,req,b) {
   if (req.method==='GET' && path==='/api/practical') return {published:!!approved,mode,experiment:approved?.experiment,title:approved?.title};
@@ -138,6 +136,7 @@ async function api(path,req,b) {
     const items=benchItems(tools,materials);
     generatedAttempts.set(id,{...newReplay(),lab,results:[],ref:randomUUID(),preview:!!b.preview,items,mixtures:createMixtureState(items)});
     return {id,title:lab.title,handout:lab.handout,tools,materials,operations:operations.filter(operation=>lab.steps.some(s=>s.operation===operation)),total:lab.steps.length,
+      procedure:lab.steps.map(step=>step.operation+' · '+step.tool),
       apparatus:Object.fromEntries([...(lab.benchTools??[]).map(row=>[row.name,row.kind]),...lab.steps.filter(step=>step.apparatus).map(step=>[step.tool,step.apparatus])]),instruction:studentInstruction(lab.steps[0]),unit:lab.steps[0].setting?.unit};
   }
   if(path==='/api/generated-transfer'||path==='/api/generated-reset') {
@@ -166,7 +165,7 @@ async function api(path,req,b) {
     if(!attempt)throw Error('Start a new practical.');
     const index=attempt.results.length;
     if(attempt.results.length===attempt.lab.steps.length&&b.index===index-1)
-      return {result:attempt.results.at(-1),instruction:null,reportCode:attempt.preview?undefined:attempt.reportCode};
+      return {result:attempt.results.at(-1),instruction:null,reportCode:attempt.reportCode};
     if(b.index!==index)throw Error('This step has already been submitted.');
     let result;
     try{
@@ -196,7 +195,7 @@ async function api(path,req,b) {
     }
     attempt.results.push(result);
     return {result,instruction:studentInstruction(next),unit:next?.setting?.unit,
-      reportCode:!next&&!attempt.preview?attempt.reportCode:undefined};
+      reportCode:!next?attempt.reportCode:undefined};
   }
   if(path==='/api/draft') {
     const lines=String(b.handout||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);

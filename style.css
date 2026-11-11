@@ -42,6 +42,12 @@ header{background:#282346;color:#fff}nav a{display:inline-flex;gap:.45rem;align-
 .scene-foot i,.mode i{background:#bcadee}
 .progress li{background:#f3effa;color:#575773}
 .progress li.active{background:#e9e0fa;color:#3d2d67}
+.progress li{min-width:0;overflow-wrap:anywhere}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.report-receipt{padding:.8rem 1rem;background:#f0eafa;border-radius:.5rem}
+.report-receipt strong,.report-receipt code{display:block}
+.report-receipt code{margin:.35rem 0;overflow-wrap:anywhere;user-select:all}
+.generated-grid form.current{padding-top:1rem}
 .report{background:#f0eafa}
 
 .lab-home{max-width:1220px;margin-inline:auto}
