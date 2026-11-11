@@ -31,6 +31,38 @@ export const apparatusKinds=['beaker','flask','cylinder','dish','balance','timer
 function field(value,max){
   return typeof value==='string'&&value.trim()&&value.length<=max;
 }
+const normalise=s=>s.trim().replace(/\s+/g,' ');
+const unitAliases=new Map([
+  ['ml',['millilitre','millilitres','milliliter','milliliters']],
+  ['l',['litre','litres','liter','liters']],
+  ['min',['minute','minutes','simulated minute','simulated minutes']],
+  ['s',['second','seconds','sec','simulated second','simulated seconds']],
+  ['g',['gram','grams']],['mg',['milligram','milligrams']],
+  ['µL',['microlitre','microlitres','microliter','microliters','μL','uL']],
+  ['°C',['degrees Celsius','degree Celsius','° C']]
+].flatMap(([unit,aliases])=>aliases.map(alias=>[alias,unit])));
+function unitKey(unit){
+  const compact=normalise(unit).replace(/\s*([/·^])\s*/g,'$1');
+  return unitAliases.get(compact)??(['mL','ml','L','l'].includes(compact)?compact.toLowerCase():compact);
+}
+export function supportedSetting(handout,excerpt,setting){
+  if(!Number.isFinite(setting?.value)||!field(setting.unit,80))return false;
+  const evidence=setting.source??excerpt;
+  if(!field(evidence,500)||!normalise(handout).includes(normalise(evidence)))return false;
+  const unit=unitKey(setting.unit);
+  // Read the value as a whole token and compare the unit immediately after it.
+  for(const match of evidence.matchAll(/(?<![\p{L}\p{N}.,+\-−])[+\-−]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?(?![\d.]|,\d)/gu)){
+    if(Number(match[0].replace('−','-'))!==setting.value)continue;
+    const tail=evidence.slice(match.index+match[0].length).trimStart();
+    // Stop at word boundaries, so "mL" cannot match "mL/min".
+    for(const boundary of tail.matchAll(/(?=$|[\s,;:!?()[\]]|\.(?!\d))/gu)){
+      const candidate=tail.slice(0,boundary.index).trimEnd();
+      if(candidate.length>100)break;
+      if(candidate&&unitKey(candidate)===unit&&!/^\s*[/·^]/.test(tail.slice(boundary.index)))return true;
+    }
+  }
+  return false;
+}
 export function validateLab(lab) {
   if(lab?.experiment!=='generated'||!field(lab.title,120)||!field(lab.handout,12000)||
     !Array.isArray(lab.steps)||lab.steps.length<2||lab.steps.length>24)
@@ -43,7 +75,6 @@ export function validateLab(lab) {
     throw Error('Bench apparatus must use a supported geometry and name.');
   if(lab.blockers!==undefined&&(!Array.isArray(lab.blockers)||lab.blockers.length>72||lab.blockers.some(item=>!field(item,500))))
     throw Error('Invalid lecturer review checklist.');
-  const normalise=s=>s.trim().replace(/\s+/g,' ');
   for(const step of lab.steps){
     if(!step||!field(step.source,1200)||!normalise(lab.handout).includes(normalise(step.source))||
       !field(step.instruction,500)||!field(step.tool,80)||!field(step.observation,500)||
@@ -53,12 +84,17 @@ export function validateLab(lab) {
     if(step.transferMaterial!==undefined&&(!['Measure','Transfer','Mix'].includes(step.operation)||
       !lab.materials?.some(name=>name.replace(/^solid:\s*/i,'')===step.transferMaterial)))
       throw Error('A material used in a transfer step must be present on the bench.');
-    if(step.setting!==undefined&&(!Number.isFinite(step.setting?.value)||!field(step.setting.unit,20)||
-      ![...step.source.matchAll(/(-?\d+(?:\.\d+)?)\s*([^\s\d,;:!?()]+)/g)].some(([,number,unit])=>
-        Number(number)===step.setting.value&&unit.replace(/\.$/,'')===step.setting.unit)))
-      throw Error('A numeric setting must use a value written in the handout excerpt and include its unit.');
+    if(step.measurementQuestion!==undefined&&!field(step.measurementQuestion,300)||
+      step.measurementAnswer!==undefined&&(step.measurementQuestion===undefined||!field(step.measurementAnswer,300)))
+      throw Error('A measurement clarification needs a question and a valid lecturer answer.');
+    if(step.setting!==undefined&&!supportedSetting(lab.handout,step.source,step.setting))
+      throw Error('A numeric setting must cite the value and unit written in the handout.');
   }
   return lab;
+}
+export function studentInstruction(step){
+  if(!step)return null;
+  return step.measurementAnswer?step.instruction+' Lecturer clarification: '+step.measurementAnswer:step.instruction;
 }
 export function executeStep(lab,index,input) {
   const step=lab.steps[index];

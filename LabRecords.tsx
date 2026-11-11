@@ -1,4 +1,5 @@
 import {useEffect,useState} from 'react';
+import {AttemptReports} from './AttemptReports';
 type Api = <T>(path:string,body?:object)=>Promise<T>;
 export type ChemicalMatch={id:string;name:string;cas:string;simulated:boolean};
 type Chemical=ChemicalMatch & {formula:string;sds:string;aliases:string};
@@ -31,6 +32,7 @@ export function LabRecords({api}:{api:Api}){
     <h2>Lab records</h2>
     {error&&<p role="alert" className="error">{error}</p>}
     {notice&&<p role="status">{notice}</p>}
+    <AttemptReports api={api}/>
     <details><summary>Chemical inventory {inventory&&'· '+inventory.total+' records'}</summary>
       <p>The demo includes three reagents. Import the university’s inventory export as a JSON array to index its actual holdings. An inventory entry only identifies a chemical.</p>
       <form className="row" onSubmit={e=>{e.preventDefault();void work(async()=>setInventory(await api<Inventory>('inventory',{query})));}}>

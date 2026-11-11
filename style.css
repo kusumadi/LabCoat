@@ -31,8 +31,47 @@ header{background:#282346;color:#fff}nav a{display:inline-flex;gap:.45rem;align-
 .generated-grid{grid-template-columns:minmax(0,1.75fr) minmax(0,1fr)}
 .generated-canvas{position:relative}
 .generated-bench-labels{position:absolute;inset:0;overflow:hidden;pointer-events:none}
-.generated-bench-labels span{position:absolute;top:0;left:0;width:max-content;max-width:min(17ch,16%);padding:.12rem .29rem;background:#fcfaffeb;color:#3e3168;border-radius:.28rem;font-size:.63rem;line-height:1.15;font-weight:700;overflow-wrap:anywhere}
-.generated-bench-labels .material-tag{background:#d9f3ed;color:#174d46}
+.generated-bench-labels span{position:absolute;top:0;left:0;width:max-content;max-width:min(18ch,24%);padding:.16rem .32rem;background:#f7f2ffb8;color:#312652;border-radius:.28rem;font-size:.68rem;line-height:1.15;font-weight:700;overflow-wrap:anywhere;opacity:0;transition:opacity .12s ease,background-color .12s ease}
+.generated-bench-labels .material-tag{background:#ebf9f460;color:#213e46;opacity:.78}
+.generated-bench-labels .is-highlighted{background:#fbf7ffd9;opacity:1;z-index:1}
+.generated-bench-labels .material-tag.is-highlighted{background:#ebf9f4d9}
+.apparatus-picker.lab-picker{grid-template-columns:repeat(auto-fit,minmax(44px,1fr))}
+.apparatus-picker.lab-picker button{min-height:44px;align-items:center;justify-content:center}
+.bench{background:radial-gradient(ellipse at 50% 25%,#f5f2ff,#d9d5ee)}
+.scale{background:#f9f6ffee;border-color:#c2b8dc}
+.scene-foot i,.mode i{background:#bcadee}
+.progress li{background:#f3effa;color:#575773}
+.progress li.active{background:#e9e0fa;color:#3d2d67}
+.report{background:#f0eafa}
+
+.lab-home{max-width:1220px;margin-inline:auto}
+.welcome{display:grid;grid-template-columns:1fr 1fr;align-items:center;overflow:hidden;border:1px solid #ded4f0;border-radius:1.4rem;background:linear-gradient(125deg,#fff 12%,#f6f0ff 60%,#dfd8f8)}
+.welcome-copy{padding:clamp(1.5rem,4.8vw,4.5rem)}
+.welcome-copy .kicker{font-size:.73rem;margin-bottom:1.2rem}
+.welcome-copy h1{font-size:clamp(2.6rem,6.6vw,6.5rem);letter-spacing:-.078em;line-height:.94;margin-bottom:1.25rem}
+.welcome-copy h1 span{color:#7a56c3}
+.welcome-copy>p:last-child{max-width:30rem;font-size:clamp(1rem,1.5vw,1.15rem);margin:0}
+.welcome-art{padding:.65rem clamp(.5rem,2vw,1.75rem) .45rem 0}
+.welcome-art svg{display:block;width:100%;height:auto}
+.workspace-cards{display:grid;grid-template-columns:1fr 1fr;gap:.9rem;margin-top:.9rem}
+.workspace-card{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:1rem;border:1px solid #ddd4ef;border-radius:.9rem;background:#fff;padding:clamp(.85rem,2.4vw,1.4rem);text-decoration:none;color:var(--ink);transition:background-color .18s ease,border-color .18s ease}
+.workspace-card:hover{background:#fcfaff;border-color:#a891d7}
+.workspace-card small,.workspace-card strong,.workspace-card span>span{display:block}
+.workspace-card small{font:750 .69rem ui-monospace,monospace;letter-spacing:.1em;color:#684d9f}
+.workspace-card strong{font-size:clamp(1.2rem,2vw,1.55rem);letter-spacing:-.035em;margin:.18rem 0}
+.workspace-card span>span{font-size:.88rem;color:var(--muted);line-height:1.4}
+.workspace-icon{display:grid;place-items:center;background:#d9f2ef;color:#315e68;border-radius:.75rem;width:3rem;height:3rem}
+.workspace-icon.lecturer-icon{background:#eee4ff;color:#674ba3}
+.workspace-arrow{font-size:1.25rem;color:#674ba3}
+.welcome-examples{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem;margin:1rem .1rem 0;font-size:.8rem}
+.welcome-examples strong{margin-right:.2rem}
+.welcome-examples span{background:#eee8f9;color:#563f83;padding:.24rem .63rem;border-radius:1rem}
+@media(max-width:700px){
+  .welcome,.workspace-cards{grid-template-columns:1fr}
+  .welcome-art{padding:0 .75rem}
+  .welcome-art svg{max-height:260px}
+}
+@media(prefers-reduced-motion:reduce){.generated-bench-labels span,.workspace-card{transition:none}}
 .bench-view-tools{justify-content:center}
 .bench-view-tools button{min-height:34px;font-size:.77rem;padding:.3rem .55rem}
 @media(max-width:850px){.generated-grid{grid-template-columns:1fr}}

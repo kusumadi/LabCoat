@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Bench} from './Bench';
+import {Home} from './Home';
 import {LabIcon} from './LabIcon';
 import {GeneratedLab,type Generated,type LabExample} from './GeneratedLab';
 import {LabRecords,type ChemicalMatch} from './LabRecords';
@@ -10,7 +11,7 @@ import './style.css';
 
 type Config={experiment?:string;environment:Environment;volume:number;base:number;low:number;high:number;tolerance:number;hints:string;steps:{source:string;action:string;warning:string}[]};
 type PublicConfig=Pick<Config,'volume'|'base'|'tolerance'|'hints'|'environment'>&{steps:{action:string;instruction:string}[]};
-type Attempt={config:PublicConfig;kind:string;index:number;stage:string;reading:number;meniscus:number;volume:number;observation:string;pink:number;plume:boolean;hasIndicator:boolean;held:boolean;readyToObserve:boolean;notes:{index:number;initial:number|null;final:number|null;titre:number|null;outcome?:string}[];report?:{group:number[];expected:number;entered:number;unit:string;agrees:boolean;trials:{index:number;actual:number;outcome:string;readingError:boolean}[]}};
+type Attempt={reportCode?:string;config:PublicConfig;kind:string;index:number;stage:string;reading:number;meniscus:number;volume:number;observation:string;pink:number;plume:boolean;hasIndicator:boolean;held:boolean;readyToObserve:boolean;notes:{index:number;initial:number|null;final:number|null;titre:number|null;outcome?:string}[];report?:{group:number[];expected:number;entered:number;unit:string;agrees:boolean;trials:{index:number;actual:number;outcome:string;readingError:boolean}[]}};
 const labels:Record<string,string>={prepare:'Prepare burette',transfer:'Transfer acid',indicator:'Add indicator',initial:'Read initial level',titrate:'Titrate and swirl',final:'Read final level',done:'Review trial'};
 const steps=Object.keys(labels).slice(0,6);
 async function api<T>(path:string,body?:object):Promise<T>{
@@ -28,11 +29,8 @@ function App(){
   useEffect(()=>{api<typeof status>('practical').then(setStatus).catch(e=>setError(e.message));},[]);
   return <><header><a className="brand" href="/"><span>⌬</span> LabCoat<span className="brand-period">.</span></a><nav aria-label="Workspace"><a aria-current={route==='/student'?'page':undefined} href="/student"><LabIcon name="flask" size={18}/> Student bench</a><a aria-current={route==='/lecturer'?'page':undefined} href="/lecturer"><LabIcon name="tools" size={18}/> Lecturer studio</a></nav><span className="mode"><i/> {status.mode}</span></header>
     <main>{error&&<p role="alert" className="error">{error}</p>}
-    {route==='/lecturer'?<Lecturer publish={()=>setStatus({...status,published:true})} mode={status.mode}/>:route==='/student'?(status.experiment==='generated'?<GeneratedLab api={api} title={status.title}/>:<Student published={status.published}/>):<Home published={status.published}/>}</main>
+    {route==='/lecturer'?<Lecturer publish={()=>setStatus({...status,published:true})} mode={status.mode}/>:route==='/student'?(status.experiment==='generated'?<GeneratedLab api={api} title={status.title}/>:<Student published={status.published}/>):<Home/>}</main>
     <footer><span>LABCOAT / CHEMISTRY PRACTICALS</span><span>{status.title??'VIRTUAL TEACHING LAB'}</span></footer></>;
-}
-function Home({published}:{published:boolean}){
-  return <><section className="hero"><div className="hero-copy"><p className="kicker">VIRTUAL CHEMISTRY LABORATORY / 01</p><h1>Acid–base<br/>titration<span>.</span></h1><p>Rehearse the bench technique, read the meniscus and determine the concentration of an unknown hydrochloric acid sample.</p><div className="row"><a className="button primary" href={published?'/student':'/lecturer'}>{published?'Enter the student bench':'Set up the practical'} →</a><a className="button" href={published?'/lecturer':'/student'}>{published?'Lecturer studio':'Student bench'}</a></div></div><div className="hero-bench"><Bench reading={.73} volume={25} pink={.18} plume={false} camera="Bench" motion="" filled act={()=>{}}/><span className="bench-tag">FIG. 01 / TEACHING BENCH</span></div></section><div className="home-meta"><div><small>ANALYTE</small><strong>Unknown HCl</strong></div><div><small>TITRANT</small><strong>Standardised NaOH</strong></div><div><small>INDICATOR</small><strong>Phenolphthalein</strong></div></div></>;
 }
 function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
   const [handout,setHandout]=useState('');
@@ -94,6 +92,7 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
     const data=await api<{config?:Config;chemicals:ChemicalMatch[];blocked?:string}>('draft',{handout:text,experiment:kind});
     setConfig(data.config);setMatches(data.chemicals);setBlocked(data.blocked??'');setDirty(false);
   }
+  const pendingMeasurements=generated?.steps.some(step=>step.measurementQuestion&&!step.measurementAnswer?.trim());
   const draft=()=>work(()=>reviewHandout(handout,experiment,attachment));
   return <><div className="page-intro"><p className="kicker">PRACTICAL AUTHORING / 01</p><h1>Lecturer studio</h1><p>Map your procedure to the teaching bench, review its settings and publish it for students.</p></div>
   {preview?<><button onClick={()=>setPreview(undefined)}>← Back to authoring</button>{preview.experiment==='generated'?<GeneratedLab api={api} preview={preview as Generated}/>:<Student published preview={preview as Config}/>}</>:<><div className="author-grid"><section className="panel"><p className="kicker">01 / SOURCE</p><h2>Procedure handout</h2><p>Give LabCoat’s AI the full handout to draft a 3D practical.</p>
@@ -144,12 +143,17 @@ function Lecturer({publish,mode}:{publish:()=>void;mode:string}){
         }}/><small>Include any missing reagents and samples. Start a line with “Solid:” for a solid sample.</small></label>
       <ol className="mapping">{generated.steps.map((step,i)=><li key={i}>
         <small>{step.source}</small><p>{step.operation} · {step.tool}{step.setting&&' · '+step.setting.value+' '+step.setting.unit}</p>
+        {step.setting?.source&&<p><small>Measurement source: {step.setting.source}</small></p>}
+        {step.measurementQuestion&&<label className="field"><span>{step.measurementQuestion}</span>
+          <textarea rows={2} maxLength={300} value={step.measurementAnswer??''} placeholder="Enter the measurement instructions students should follow" onChange={e=>{
+            setReviewed(false);setGenerated({...generated,steps:generated.steps.map((row,j)=>j===i?{...row,measurementAnswer:e.target.value}:row)});
+          }}/><small>Your answer will appear in the student’s procedure.</small></label>}
         {(['instruction','observation'] as const).map(field=><label key={field} className="field">{field==='instruction'?'Student instruction':'Representative observation'}<textarea rows={2} maxLength={500} value={step[field]} onChange={e=>{
           setReviewed(false);setGenerated({...generated,steps:generated.steps.map((row,j)=>j===i?{...row,[field]:e.target.value}:row)});
         }}/></label>)}
       </li>)}</ol>
       <label className="check"><input type="checkbox" disabled={dirty||busy} checked={reviewed&&!dirty} onChange={e=>setReviewed(e.target.checked)}/> I reviewed the instructions, apparatus and observations against the handout.</label>
-      <div className="row"><button disabled={busy||dirty} onClick={()=>setPreview({...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean)})}>Student preview</button><button className="primary" disabled={busy||dirty||!reviewed||!!generated.blockers?.length} onClick={()=>work(async()=>{await api('publish',{...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean),reviewed});publish();setNotice('Practical published.');})}>Publish practical</button></div>
+      <div className="row"><button disabled={busy||dirty||pendingMeasurements} onClick={()=>setPreview({...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean)})}>Student preview</button><button className="primary" disabled={busy||dirty||!reviewed||pendingMeasurements||!!generated.blockers?.length} onClick={()=>work(async()=>{await api('publish',{...generated,materials:generated.materials?.map(name=>name.trim()).filter(Boolean),reviewed});publish();setNotice('Practical published.');})}>Publish practical</button></div>
     </>):!config?<p>{blocked?'Publication requires a compatible simulation model.':'Draft a procedure to review its equipment and actions.'}</p>:<><p>Review the source beside each bench action. Selecting an action confirms that you have resolved the warning.</p>
     <ol className="mapping">{config.steps.map((s,i)=><li key={i}><div>{s.source}{s.warning&&<small className="warning">{s.warning}</small>}</div><select aria-label={'Action for instruction '+(i+1)} value={s.action} onChange={e=>{const action=e.target.value;setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,action,warning:action?'':'Select a supported action.'}:x)});}}><option value="">Unresolved</option>{steps.map(key=><option key={key} value={key}>{labels[key]}</option>)}</select>{s.action&&<small>{catalogue[s.action]?.join(' · ')}</small>}{s.warning&&s.action&&<button onClick={()=>setConfig({...config,steps:config.steps.map((x,j)=>i===j?{...x,warning:''}:x)})}>Confirm mapping</button>}</li>)}</ol>
     <h2>Practical settings</h2><div className="fields">
@@ -168,7 +172,7 @@ function EnvironmentEditor({value,onChange}:{value:Environment;onChange:(environ
     <div className="fields">
       <label className="field">Bench lighting <output>{Math.round(value.lighting*100)}%</output><input type="range" min=".45" max="1.35" step=".05" value={value.lighting} onChange={e=>update({lighting:+e.target.value})}/></label>
       <label className="field">Table height <output>{value.height.toFixed(2)}</output><input type="range" min="-.8" max=".8" step=".05" value={value.height} onChange={e=>update({height:+e.target.value})}/></label>
-      <label className="field">Table surface<select value={value.surface} onChange={e=>update({surface:e.target.value as Environment['surface']})}><option value="sage">Sage</option><option value="slate">Slate</option><option value="birch">Birch</option></select></label>
+      <label className="field">Table surface<select value={value.surface} onChange={e=>update({surface:e.target.value as Environment['surface']})}><option value="sage">Lavender</option><option value="slate">Slate</option><option value="birch">Birch</option></select></label>
     </div>
     <label className="check"><input type="checkbox" checked={value.movable} onChange={e=>update({movable:e.target.checked})}/> Let students rearrange equipment in practice</label>
     <label className="check"><input type="checkbox" checked={value.experiments} onChange={e=>update({experiments:e.target.checked})}/> Allow experimental steps and fresh restarts in practice</label>
@@ -262,7 +266,7 @@ function Student({published,preview}:{published:boolean;preview?:Config}){
   </section></div>
   <section className="panel notebook"><p className="kicker">EXPERIMENT RECORD</p><h2>Lab notebook</h2><div className="table-wrap"><table><thead><tr><th>Trial</th><th>Initial (mL)</th><th>Final (mL)</th><th>Titre (mL)</th>{a.kind==='practice'&&<th>Observation</th>}</tr></thead><tbody>{a.notes.map(n=><tr key={n.index}><th>{name(n.index)}</th><td>{fmt(n.initial)}</td><td>{fmt(n.final)}</td><td>{fmt(n.titre)}</td>{a.kind==='practice'&&<td>{n.outcome||'—'}</td>}</tr>)}</tbody></table></div>
   <p>Use at least two repeat titres within {a.config.tolerance.toFixed(2)} mL of one another. Calculate the HCl concentration from the mean titre and the 1:1 reaction.</p>
-  {a.report?<div className="report" role="status"><h3>Submission feedback</h3><p>{a.report.agrees?'Your result agrees with your recorded titres.':'Check the calculation from your recorded titres.'} Your value: {a.report.entered} {a.report.unit}. Calculated value: {a.report.expected.toPrecision(5)} {a.report.unit} from {a.report.group.map(fmt).join(', ')} mL.</p><ul>{a.report.trials.map(t=><li key={t.index}>{name(t.index)} · {t.outcome} · actual delivery {fmt(t.actual)} mL{t.readingError?' · review your meniscus readings':''}</li>)}</ul></div>:
+  {a.report?<div className="report" role="status"><h3>Submission feedback</h3>{a.reportCode&&<p>Saved. Share this code with your lecturer on request: <code>{a.reportCode}</code></p>}<p>{a.report.agrees?'Your result agrees with your recorded titres.':'Check the calculation from your recorded titres.'} Your value: {a.report.entered} {a.report.unit}. Calculated value: {a.report.expected.toPrecision(5)} {a.report.unit} from {a.report.group.map(fmt).join(', ')} mL.</p><ul>{a.report.trials.map(t=><li key={t.index}>{name(t.index)} · {t.outcome} · actual delivery {fmt(t.actual)} mL{t.readingError?' · review your meniscus readings':''}</li>)}</ul></div>:
   <form className="row" onSubmit={e=>{e.preventDefault();void work(async()=>setAttempt(await api<Attempt>('submit',{id,result,unit})));}}><label className="field">Calculated HCl concentration<input required type="number" step="any" min="0" value={result} onChange={e=>setResult(e.target.value)}/></label><label className="field">Units<select value={unit} onChange={e=>setUnit(e.target.value)}><option>mol/L</option><option>mmol/L</option></select></label><button className="primary" disabled={busy||stage!=='done'||a.notes.filter(n=>n.index>0&&n.final!==null).length<2}>Submit concentration</button></form>}
   </section></>;
 }

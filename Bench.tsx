@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import * as T from 'three';
+import {benchTheme} from './bench-theme';
 import {defaultEnvironment,moveEquipment,type Environment,type Item,type Layout,type Point} from './environment.mjs';
 
 type Props={fullMotion?:boolean;duration?:number;onMotionEnd?:()=>void;reading:number;volume:number;pink:number;plume:boolean;camera:string;motion:string;act:(name:string)=>void;filled:boolean;environment?:Environment;layout?:Layout;arrange?:boolean;explore?:boolean;onLayout?:(layout:Layout)=>void};
@@ -17,8 +18,8 @@ export function Bench(props:Props) {
     renderer.shadowMap.enabled=true;
     host.prepend(renderer.domElement);
     const scene=new T.Scene();
-    scene.fog=new T.Fog('#d9e7df',15,35);
-    const ambient=new T.HemisphereLight('#fff9ec','#759787',2.6);
+    scene.fog=new T.Fog(benchTheme.backdrop,15,35);
+    const ambient=new T.HemisphereLight('#fffaff',benchTheme.ambient,2.6);
     scene.add(ambient);
     let parent:T.Object3D=scene;
     const light=new T.DirectionalLight('#fff7df',2.8);
@@ -27,9 +28,9 @@ export function Bench(props:Props) {
     light.shadow.mapSize.set(1024,1024);
     scene.add(light);
     const camera=new T.PerspectiveCamera(34,1,.01,45);
-    const metal=new T.MeshStandardMaterial({color:'#3f5550',metalness:.55,roughness:.28});
-    const glass=new T.MeshPhysicalMaterial({color:'#cefff1',transparent:true,opacity:.21,roughness:.16,side:T.DoubleSide,depthWrite:false});
-    const teal=new T.MeshStandardMaterial({color:'#167c69',roughness:.36});
+    const metal=new T.MeshStandardMaterial({color:benchTheme.metal,metalness:.55,roughness:.28});
+    const glass=new T.MeshPhysicalMaterial({color:benchTheme.glass,transparent:true,opacity:.21,roughness:.16,side:T.DoubleSide,depthWrite:false});
+    const teal=new T.MeshStandardMaterial({color:benchTheme.accent,roughness:.36});
     const liquid=new T.MeshStandardMaterial({color:'#9ddfd9',transparent:true,opacity:.75});
     const solution=new T.MeshStandardMaterial({color:'#b8e2dd',transparent:true,opacity:.88});
     const plumeMaterial=new T.MeshStandardMaterial({color:'#ed499c',transparent:true,opacity:.56,depthWrite:false});
@@ -38,12 +39,12 @@ export function Bench(props:Props) {
     }
     const cyl=(r:number,h:number)=>new T.CylinderGeometry(r,r,h,36);
     const box=(w:number,h:number,d:number)=>new T.BoxGeometry(w,h,d);
-    function label(text:string,w:number,h:number,x:number,y:number,z:number,background='#e9f3e8'){
+    function label(text:string,w:number,h:number,x:number,y:number,z:number,background='#f4effc'){
       const canvas=document.createElement('canvas');canvas.width=512;canvas.height=128;
       const ctx=canvas.getContext('2d')!;ctx.fillStyle=background;ctx.fillRect(0,0,512,128);
-      ctx.font='bold 53px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#163833';ctx.fillText(text,256,64);
+      ctx.font='bold 53px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#332954';ctx.fillText(text,256,64);
       const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;
-      return mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({map:texture,transparent:true}),x,y,z);
+      return mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false}),x,y,z);
     }
     const table=new T.Group();
     scene.add(table);
@@ -60,11 +61,11 @@ export function Bench(props:Props) {
       hitboxes.push({object,action,item});
     }
     parent=table;
-    const tabletop=new T.MeshStandardMaterial({color:'#71988b'});
+    const tabletop=new T.MeshStandardMaterial({color:benchTheme.tabletop});
     mesh(box(12,.25,6),tabletop,0,-.15,0);
     target('table','',12,.24,6,0,-.15,0);
     for(const x of [-5.5,5.5]) for(const z of [-2.55,2.55]) mesh(box(.22,2.7,.22),metal,x,-1.55,z);
-    mesh(box(34,.2,30),new T.MeshStandardMaterial({color:'#b8c9c1'}),0,-3.55,0,scene);
+    mesh(box(34,.2,30),new T.MeshStandardMaterial({color:benchTheme.floor}),0,-3.55,0,scene);
     const burette=group('burette');
     mesh(box(1.95,.12,1.65),metal,-.9,.08,-.6);
     mesh(cyl(.05,5.7),metal,-.95,2.93,-.6);
@@ -106,13 +107,16 @@ export function Bench(props:Props) {
       {item:'acid',x:-3.45,name:'HCl',color:'#b3c5c9'},
       {item:'indicator',x:2.38,name:'Indicator',color:'#7d6048'}
     ] as const;
+    const bottleLabels=new Map<Item,T.Material>();
     for(const {item,x,name,color} of bottles){
       group(item);
       const body=new T.MeshStandardMaterial({color,roughness:.27});
       const narrow=item==='indicator';
       mesh(cyl(narrow?.27:.39,narrow?.79:1.12),body,x,narrow?.4:.57,-.27);
       mesh(cyl(.19,.18),metal,x,narrow?.85:1.21,-.27);
-      label(name,narrow?.48:.66,.21,x,.53,narrow?.009:.13);
+      const tag=label(name,narrow?.48:.66,.21,x,.53,narrow?.009:.13);
+      tag.material.opacity=.48;
+      bottleLabels.set(item,tag.material);
       target(item,item==='base'?'burette':item==='acid'?'pipette':'indicator',.75,1.25,.8,x,.6,-.27);
     }
     const pipette=group('pipette');
@@ -133,6 +137,10 @@ export function Bench(props:Props) {
     let pending:Layout|undefined;
     let layoutVersion=state.current.layout;
     const canvas=renderer.domElement;
+    function highlightBottle(item?:Item){
+      for(const [key,paint] of bottleLabels)paint.opacity=key===item ? .82 : .48;
+    }
+    function clearBottleHighlight(){highlightBottle();}
     function cast(e:PointerEvent) {
       const r=canvas.getBoundingClientRect();
       ray.setFromCamera(new T.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);
@@ -150,6 +158,7 @@ export function Bench(props:Props) {
       if(e.button!==0||drag)return;
       cast(e);
       const target=hit();
+      highlightBottle(target?.item);
       const item=state.current.arrange ? target?.item : undefined;
       drag={id:e.pointerId,item,action:target?.action,x:e.clientX,y:e.clientY,moved:false,
         start:item ? intersection() : undefined,position:item ? state.current.layout?.[item] : undefined};
@@ -158,7 +167,9 @@ export function Bench(props:Props) {
     const move=(e:PointerEvent)=>{
       cast(e);
       if(!drag||drag.id!==e.pointerId) {
-        canvas.style.cursor=state.current.arrange?'grab':hit()?'pointer':state.current.explore?'grab':'default';
+        const target=hit();
+        highlightBottle(target?.item);
+        canvas.style.cursor=state.current.arrange?'grab':target?'pointer':state.current.explore?'grab':'default';
         return;
       }
       const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
@@ -189,12 +200,13 @@ export function Bench(props:Props) {
     };
     canvas.addEventListener('pointerdown',down);
     canvas.addEventListener('pointermove',move);
+    canvas.addEventListener('pointerleave',clearBottleHighlight);
     canvas.addEventListener('pointerup',up);
     canvas.addEventListener('lostpointercapture',up);
     canvas.addEventListener('wheel',wheel,{passive:false});
     let frame=0,previous='',age=0,last=0,width=0,height=0,level=1.6,volume=0,plumeAmount=0;
     const clear=new T.Color('#b8e2dd'), pink=new T.Color('#e02983'), goalColor=new T.Color();
-    const surfaceColors={sage:new T.Color('#71988b'),slate:new T.Color('#455d69'),birch:new T.Color('#bf9b6d')};
+    const surfaceColors={sage:new T.Color(benchTheme.tabletop),slate:new T.Color('#4f4c70'),birch:new T.Color('#bf9b6d')};
     const look=new T.Vector3(), goal=new T.Vector3(), focus=new T.Vector3();
     const reduced=matchMedia('(prefers-reduced-motion: reduce)');
     function draw(now:number) {

@@ -7,7 +7,7 @@ import {actions,catalogue,sequence,handout,sample,validate,trial,chemistry,round
 
 import {openLabRecords,requireCapability,titration} from './lab-records.mjs';
 import {aligned,validateEnvironment} from './environment.mjs';
-import {examples,operations,validateLab,executeStep} from './generated-lab.mjs';
+import {examples,operations,validateLab,executeStep,studentInstruction} from './generated-lab.mjs';
 import {benchItems,createMixtureState,transferMixture} from './lab-capabilities.mjs';
 import {readHandout,designLab} from './handout-ai.mjs';
 
@@ -24,6 +24,17 @@ let writes=Promise.resolve();
 const attempts = new Map();
 const generatedAttempts = new Map();
 const mode = process.env.OPENAI_API_KEY ? 'Live AI' : 'Scripted demo';
+const newReplay=()=>({started:Date.now(),events:[],omitted:0,reportCode:randomUUID().replaceAll('-','')});
+function recordEvent(attempt,label,detail) {
+  if(attempt.preview)return;
+  if(attempt.events.length>=3000){attempt.omitted++;return;}
+  attempt.events.push({seconds:Math.floor((Date.now()-attempt.started)/1000),label,detail});
+}
+function archiveAttempt(attempt,summary) {
+  if(attempt.preview)return;
+  records.saveAttempt(attempt.reportCode,{...summary,events:attempt.events,omitted:attempt.omitted,
+    duration:Math.floor((Date.now()-attempt.started)/1000)});
+}
 const publicConfig = c => ({volume:c.volume,base:c.base,tolerance:c.tolerance,hints:c.hints,environment:c.environment,
   steps:c.steps.map(s=>({action:s.action, instruction:actions[s.action]}))});
 
@@ -33,7 +44,19 @@ async function ai(instructions,input,maxOutputTokens=1500) {
     headers:{Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json'},
     body:JSON.stringify({model:process.env.OPENAI_MODEL || 'gpt-4.1-mini',instructions,input:Array.isArray(input)?input:JSON.stringify(input),store:false,max_output_tokens:maxOutputTokens})
   });
-  if (!res.ok) throw Error('Live AI request failed. Check the server configuration and try again.');
+  if (!res.ok) {
+    // Use our own messages so upstream responses cannot expose credentials or request details.
+    const {error} = await res.json().catch(()=>({}));
+    if (error?.code==='credit_balance_exhausted')
+      throw Error('Your OpenAI API credits are exhausted. Add credits to the organization that owns this API key, then try again.');
+    if (error?.type==='insufficient_quota'||error?.code==='insufficient_quota')
+      throw Error('Your OpenAI API quota is exhausted. Check the API billing and spend limits for this key’s project.');
+    if (res.status===429) throw Error('OpenAI is rate limiting requests. Wait a moment and try again.');
+    if (res.status===401) throw Error('OpenAI rejected the API credentials. Check the key in .env and restart LabCoat.');
+    if (error?.code==='model_not_found')
+      throw Error('The configured OpenAI model is unavailable for this project. Check OPENAI_MODEL and project access.');
+    throw Error('Live AI request failed (HTTP '+res.status+'). Check the server configuration and try again.');
+  }
   const data=await res.json();
   const output=data.output?.flatMap(item=>item.content??[]).filter(item=>item.type==='output_text').map(item=>item.text).join('');
   if (data.status==='incomplete'||!output) throw Error('Live AI could not finish the draft. Try again or provide a shorter handout.');
@@ -55,7 +78,7 @@ function view(a) {
     observation:response.color, pink:response.pink, plume:t.hasIndicator&&t.unmixed>0, hasIndicator:t.hasIndicator, held:t.held, readyToObserve:t.delivered>0&&!t.unmixed,
     notes:a.trials.map((n,i)=>({initial:n.initial,final:n.final,titre:n.final===null?null:titre(n),
       ...(a.kind==='practice' && n.final!==null?{outcome:chemistry(a.config,a.acid,n).color}:{}),index:i})),
-    report:a.report};
+    report:a.report,reportCode:a.report&&!a.preview?a.reportCode:undefined};
 }
 async function api(path,req,b) {
   if (req.method==='GET' && path==='/api/practical') return {published:!!approved,mode,experiment:approved?.experiment,title:approved?.title};
@@ -64,6 +87,7 @@ async function api(path,req,b) {
   if(path==='/api/inventory') return records.search(b.query);
   if(path==='/api/import-inventory') return {imported:records.import(b.rows)};
   if(path==='/api/incidents') return records.inbox();
+  if(path==='/api/attempt-report') return records.attemptReport(b.code);
   if(path==='/api/review-incident') {records.review(b.id);return records.inbox();}
   if(path==='/api/explain-incident') {
     const incident=records.incident(b.id);
@@ -112,16 +136,18 @@ async function api(path,req,b) {
     const tools=[...new Set([...(lab.benchTools??[]).map(row=>row.name),...lab.steps.map(step=>step.tool)])];
     const materials=lab.materials??Object.values(examples).find(example=>example.handout===lab.handout)?.materials??records.inspect(lab.handout).slice(0,24).map(row=>row.name);
     const items=benchItems(tools,materials);
-    generatedAttempts.set(id,{lab,results:[],ref:randomUUID(),preview:!!b.preview,items,mixtures:createMixtureState(items)});
+    generatedAttempts.set(id,{...newReplay(),lab,results:[],ref:randomUUID(),preview:!!b.preview,items,mixtures:createMixtureState(items)});
     return {id,title:lab.title,handout:lab.handout,tools,materials,operations:operations.filter(operation=>lab.steps.some(s=>s.operation===operation)),total:lab.steps.length,
-      apparatus:Object.fromEntries([...(lab.benchTools??[]).map(row=>[row.name,row.kind]),...lab.steps.filter(step=>step.apparatus).map(step=>[step.tool,step.apparatus])]),instruction:lab.steps[0].instruction,unit:lab.steps[0].setting?.unit};
+      apparatus:Object.fromEntries([...(lab.benchTools??[]).map(row=>[row.name,row.kind]),...lab.steps.filter(step=>step.apparatus).map(step=>[step.tool,step.apparatus])]),instruction:studentInstruction(lab.steps[0]),unit:lab.steps[0].setting?.unit};
   }
   if(path==='/api/generated-transfer'||path==='/api/generated-reset') {
     const attempt=generatedAttempts.get(b.id);
     if(!attempt)throw Error('Start a new practical.');
+    if(attempt.results.length===attempt.lab.steps.length)throw Error('This practical is complete.');
     if(path==='/api/generated-reset'){
       attempt.mixtures=createMixtureState(attempt.items);
       attempt.lastTransfer=undefined;
+      recordEvent(attempt,'Setup reset','The student reset the bench setup.');
       return {reset:true};
     }
     if(!attempt.items[b.to]?.label)throw Error('Choose an apparatus item to receive the transfer.');
@@ -131,12 +157,16 @@ async function api(path,req,b) {
       records.alert(attempt.ref,attempt.results.length,0,'practice','unmodelled combination',
         'Simulation paused a mixture without a verified model: '+attempt.items[b.from].name+' → '+attempt.items[b.to].name+'.');
     if(outcome.allowed)attempt.lastTransfer={tool:attempt.items[b.to].label,materials:composition.map(row=>row.name),step:attempt.results.length};
+    recordEvent(attempt,outcome.allowed?'Material transfer':'Transfer blocked',
+      attempt.items[b.from].name+' → '+attempt.items[b.to].name+(outcome.observation?' · '+outcome.observation:''));
     return outcome;
   }
   if(path==='/api/generated-action') {
     const attempt=generatedAttempts.get(b.id);
     if(!attempt)throw Error('Start a new practical.');
     const index=attempt.results.length;
+    if(attempt.results.length===attempt.lab.steps.length&&b.index===index-1)
+      return {result:attempt.results.at(-1),instruction:null,reportCode:attempt.preview?undefined:attempt.reportCode};
     if(b.index!==index)throw Error('This step has already been submitted.');
     let result;
     try{
@@ -153,9 +183,20 @@ async function api(path,req,b) {
         records.alert(attempt.ref,index,0,'practice','apparatus or operation','Selected an apparatus item or operation that did not match the current handout step.');
       throw error;
     }
-    attempt.results.push(result);
     const next=attempt.lab.steps[index+1];
-    return {result,instruction:next?.instruction??null,unit:next?.setting?.unit};
+    recordEvent(attempt,'Step '+(index+1)+' · '+result.operation,result.tool+' · '+result.observation+(result.note?' · Notebook: '+result.note:''));
+    if(!next) {
+      try {
+        archiveAttempt(attempt,{title:attempt.lab.title,mode:'Generated practical',completedSteps:index+1,
+          notebook:[...attempt.results,result].filter(row=>row.note).map(row=>row.note)});
+      } catch(error) {
+        if(attempt.omitted)attempt.omitted--;else attempt.events.pop();
+        throw error;
+      }
+    }
+    attempt.results.push(result);
+    return {result,instruction:studentInstruction(next),unit:next?.setting?.unit,
+      reportCode:!next&&!attempt.preview?attempt.reportCode:undefined};
   }
   if(path==='/api/draft') {
     const lines=String(b.handout||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
@@ -183,6 +224,8 @@ async function api(path,req,b) {
   if(path==='/api/publish') {
     const config=b.experiment==='generated'?validateLab(b):validate(b);
     if(config.experiment==='generated'){
+      if(config.steps.some(step=>step.measurementQuestion&&!step.measurementAnswer))
+        throw Error('Answer the measurement questions before publishing.');
       if(config.blockers?.length)throw Error('Resolve the missing information and unsupported operations, then regenerate before publishing.');
       if(b.reviewed!==true)throw Error('Confirm lecturer review before publishing.');
     }else requireCapability(config,records);
@@ -204,7 +247,7 @@ async function api(path,req,b) {
     if (!['practice','mock'].includes(b.kind)) throw Error('Choose an attempt mode.');
     const id=randomUUID();
     const acid=config.low+(config.high-config.low)*randomInt(1001)/1000;
-    const a={config,acid,kind:b.kind,trials:[trial(0)],ref:randomUUID(),preview:!!b.preview,run:0};
+    const a={...newReplay(),config,acid,kind:b.kind,trials:[trial(0)],ref:randomUUID(),preview:!!b.preview,run:0};
     attempts.set(id,a);
     return {id,...view(a)};
   }
@@ -224,7 +267,10 @@ async function api(path,req,b) {
       : scriptedHint(state.stage,state.observation);
     return {reply,mode};
   }
-  if (a.report) throw Error('This attempt was submitted.');
+  if (a.report) {
+    if(path==='/api/submit')return view(a);
+    throw Error('This attempt was submitted.');
+  }
   if(path==='/api/action') {
     const experiment=a.kind==='practice' && a.config.environment.experiments;
     if (b.action==='add' && t.stage==='titrate') {
@@ -262,7 +308,11 @@ async function api(path,req,b) {
       if (b.action==='final' && Math.abs(t.final-round(t.start+t.delivered))>.011)
         notify('final reading','Entered a final burette reading more than 0.01 mL from the simulated reading.');
     }
-    return view(a);
+    const frame=view(a);
+    const value=b.action==='add'||b.action==='initial'||b.action==='final'?' · '+b.value:'';
+    recordEvent(a,'Trial '+(frame.index+1)+' · '+b.action,
+      frame.stage+' · burette '+frame.reading.toFixed(2)+' mL · '+frame.observation+value);
+    return frame;
   }
   if(path==='/api/submit') {
     if (t.stage!=='done') throw Error('Finish the current trial before submitting.');
@@ -271,10 +321,12 @@ async function api(path,req,b) {
     if (!Number.isFinite(entered)||entered<=0||!['mol/L','mmol/L'].includes(b.unit)) throw Error('Enter a positive concentration and select units.');
     if (group.length<2) throw Error('Record at least two concordant repeat titres.');
     const expected=concentration(group,a.config,b.unit);
-    a.report={group,expected,entered,unit:b.unit,agrees:Math.abs(entered-expected)<=expected*0.005,
+    const report={group,expected,entered,unit:b.unit,agrees:Math.abs(entered-expected)<=expected*0.005,
       trials:a.trials.map((n,i)=>({index:i,actual:round(n.delivered),outcome:n.final===null?'discarded':chemistry(a.config,a.acid,n).color,
         readingError:n.final!==null && (Math.abs(n.initial-n.start)>0.011||Math.abs(n.final-round(n.start+n.delivered))>0.011)}))};
-    if (!a.report.agrees) notify('calculation mismatch','Submitted a concentration that differs from the result calculated from the recorded concordant titres.');
+    archiveAttempt(a,{title:'Acid–base titration',mode:a.kind,titration:report});
+    a.report=report;
+    if (!report.agrees) notify('calculation mismatch','Submitted a concentration that differs from the result calculated from the recorded concordant titres.');
     return view(a);
   }
   throw Error('Unknown action.');

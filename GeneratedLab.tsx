@@ -1,7 +1,7 @@
 import {useRef,useState} from 'react';
 import {GeneratedBench,type TransferOutcome} from './GeneratedBench';
 import {apparatusIcon,LabIcon,operationIcons} from './LabIcon';
-export type GeneratedStep={source:string;instruction:string;operation:string;tool:string;observation:string;visual:string;apparatus?:string;setting?:{value:number;unit:string}};
+export type GeneratedStep={source:string;instruction:string;operation:string;tool:string;observation:string;visual:string;apparatus?:string;setting?:{value:number;unit:string;source?:string};measurementQuestion?:string;measurementAnswer?:string};
 export type Generated={experiment:'generated';title:string;handout:string;steps:GeneratedStep[];materials?:string[];benchTools?:{name:string;kind:string}[];blockers?:string[];coverage?:{source:string;step:number|null}[]};
 export type LabExample={id:string;title:string;handout:string};
 type Api=<T>(path:string,body?:object)=>Promise<T>;
@@ -19,6 +19,8 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
   const [setting,setSetting]=useState('');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [reportCode,setReportCode]=useState<string>();
+  const [olderServer,setOlderServer]=useState(false);
   async function work(task:()=>Promise<void>){
     setBusy(true);setError('');
     try{await task();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
@@ -39,10 +41,11 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
     submitting.current=true;
     try{await work(async()=>{
       const numericSetting=unit?Number(setting):undefined;
-      const data=await api<{result:Result;instruction:string|null;unit?:string}>('generated-action',{
+      const data=await api<{result:Result;instruction:string|null;unit?:string;reportCode?:string}>('generated-action',{
         id:session.id,index:results.length,tool:item,operation:action,note,setting:numericSetting
       });
       setResults([...results,{...data.result,direct}]);setInstruction(data.instruction);
+      setReportCode(data.reportCode);
       setTool('');setOperation('');setNote('');setUnit(data.unit);setSetting('');
     });}finally{submitting.current=false;}
   }
@@ -51,12 +54,16 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
     <h1>{session?.title??preview?.title??title??'Generated practical'}</h1>
     {!session?<><p>Pick your apparatus, run the experiment, and log your observations.</p>
       <button className="primary" disabled={busy} onClick={()=>work(async()=>{
-        const next=await api<Session>('generated-start',{preview});setSession(next);setInstruction(next.instruction);setUnit(next.unit);
+        const next=await api<Session>('generated-start',{preview});
+        setOlderServer(!Array.isArray(next.materials));
+        setSession({...next,materials:Array.isArray(next.materials)?next.materials:[]});
+        setInstruction(next.instruction);setUnit(next.unit);
       })}><LabIcon name="play" size={16}/> Start practical</button></>:<>
+      {olderServer&&<p className="warning" role="status">The running server did not provide the bench materials. In the terminal running LabCoat, press Ctrl+C. Open the updated LabCoat folder, run npm start, then refresh this page and start a new practical.</p>}
       <details className="lab-disclosure"><summary><LabIcon name="notebook" size={17}/> Handout</summary><p className="handout-copy">{session.handout}</p></details>
       <div className="generated-grid">
         <div className="generated-bench" aria-label="Apparatus visualisation">
-          <div className="bench-badge"><LabIcon name={tool?apparatusIcon(tool):'flask'} size={20}/> {tool||result?.tool||'Work surface'}</div>
+          <div className="bench-badge"><LabIcon name="bench" size={20}/> Work surface</div>
           <GeneratedBench tools={session.tools} materials={session.materials} apparatus={session.apparatus}
             selected={tool} result={result} viewReset={viewReset} benchReset={benchReset}
             onTransfer={async(from,to,phase)=>{
@@ -92,8 +99,8 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
         {instruction?<form onSubmit={e=>{e.preventDefault();void run(tool,operation);}}>
           <div className="lab-progress"><progress value={results.length} max={session.total} aria-label="Practical progress"/><span>{results.length+1} / {session.total}</span></div>
           <h2>{instruction}</h2>
-          <fieldset><legend>Apparatus</legend><div className="lab-picker">
-            {session.tools.map(item=><button key={item} type="button" disabled={busy} aria-pressed={tool===item} onClick={()=>setTool(item)}><LabIcon name={apparatusIcon(item)}/><span>{item}</span></button>)}
+          <fieldset><legend>Apparatus</legend><div className="lab-picker apparatus-picker">
+            {session.tools.map(item=><button key={item} type="button" disabled={busy} aria-label={item} title={item} aria-pressed={tool===item} onClick={()=>setTool(item)}><LabIcon name={session.apparatus?.[item]??apparatusIcon(item)}/></button>)}
           </div></fieldset>
           <fieldset><legend>Action</legend><div className="lab-picker lab-actions">
             {session.operations.map(item=><button key={item} type="button" disabled={busy} aria-pressed={operation===item} onClick={()=>setOperation(item)}>
@@ -104,7 +111,8 @@ export function GeneratedLab({api,preview,title}:{api:Api;preview?:Generated;tit
           {operation==='Record'?<label className="field">Notebook entry<textarea rows={3} maxLength={1000} value={note} onChange={e=>setNote(e.target.value)}/></label>:
             <details className="lab-disclosure"><summary><LabIcon name="notebook" size={16}/> Add a note</summary><label className="field">Notebook entry<textarea rows={2} maxLength={1000} value={note} onChange={e=>setNote(e.target.value)}/></label></details>}
           <button className="primary" disabled={busy||transferPending||!tool||!operation}><LabIcon name={operation==='Wait'?'timer':'play'} size={17}/>{operation==='Wait'?'Advance time':'Run action'}</button>
-        </form>:<div role="status"><h2>Practical complete</h2><p>Review your observations and notebook entries below.</p></div>}
+        </form>:<div role="status"><h2>Practical complete</h2><p>Review your observations and notebook entries below.</p>
+          {reportCode&&<p>Saved. Share this code with your lecturer on request: <code>{reportCode}</code></p>}</div>}
       </div>
       <details className="lab-disclosure" open={!instruction}><summary><LabIcon name="notebook" size={18}/> Notebook · {results.length}</summary>
       <ol>{results.map((row,index)=><li key={index}><p>{row.observation}{row.note&&<><br/><strong>Your entry</strong> · {row.note}</>}</p></li>)}</ol></details>

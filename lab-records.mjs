@@ -47,6 +47,9 @@ export function openLabRecords(path) {
       mode TEXT NOT NULL, code TEXT NOT NULL, evidence TEXT NOT NULL, created TEXT NOT NULL,
       reviewed INTEGER NOT NULL DEFAULT 0, UNIQUE(attempt, trial, run, code)
     );
+    CREATE TABLE IF NOT EXISTS completed_attempts (
+      code TEXT PRIMARY KEY, completed TEXT NOT NULL, record TEXT NOT NULL
+    );
   `);
   const addEquipment=db.prepare('INSERT OR REPLACE INTO equipment_keywords VALUES (?, ?)');
   for(const {kind,aliases} of equipment)for(const name of aliases)addEquipment.run(name,kind);
@@ -56,6 +59,17 @@ export function openLabRecords(path) {
   for (const item of starter) add(chemical(item));
   return {
     close:()=>db.close(),
+    saveAttempt(code, record) {
+      db.prepare('INSERT INTO completed_attempts VALUES (?, ?, ?)')
+        .run(code,new Date().toISOString(),JSON.stringify(record));
+    },
+    attemptReport(code) {
+      if(typeof code!=='string'||!/^[a-f0-9]{32}$/i.test(code.trim()))
+        throw Error('Enter the report code from the student’s completion screen.');
+      const row=db.prepare('SELECT completed,record FROM completed_attempts WHERE code=?').get(code.trim().toLowerCase());
+      if(!row)throw Error('No completed practical matches that report code.');
+      return {...JSON.parse(row.record),completed:row.completed};
+    },
     import(input) {
       if (!Array.isArray(input)||!input.length||input.length>2000) throw Error('Provide a JSON array of 1 to 2,000 inventory records per batch.');
       const rows=input.map(chemical);

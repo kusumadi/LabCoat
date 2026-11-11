@@ -3,6 +3,7 @@ import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {apparatusIcon,LabIcon} from './LabIcon';
 import {benchItems} from './lab-capabilities.mjs';
+import {benchTheme} from './bench-theme';
 
 export type TransferOutcome={allowed:boolean;visual?:string;observation?:string;source?:string;spent?:boolean};
 type Props={
@@ -32,11 +33,11 @@ export function GeneratedBench(props:Props){
     catch{setFallback(true);return;}
     renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.65));
     renderer.shadowMap.enabled=true;
-    renderer.setClearColor('#e7e8f5');
+    renderer.setClearColor(benchTheme.backdrop);
     container.appendChild(renderer.domElement);
     const scene=new T.Scene();
-    scene.fog=new T.Fog('#e7e8f5',36,55);
-    scene.add(new T.HemisphereLight('#fffaff','#a19fc6',2.2));
+    scene.fog=new T.Fog(benchTheme.backdrop,36,55);
+    scene.add(new T.HemisphereLight('#fffaff',benchTheme.ambient,2.2));
     const key=new T.DirectionalLight('#fff3dd',3);
     key.position.set(-4,8,6);
     key.castShadow=true;
@@ -56,9 +57,9 @@ export function GeneratedBench(props:Props){
     controls.enablePan=false;
     controls.maxPolarAngle=Math.PI*.46;
     const material=(color:string,metalness=0)=>new T.MeshStandardMaterial({color,roughness:.38,metalness});
-    const glass=new T.MeshPhysicalMaterial({color:'#d6f7ff',transparent:true,opacity:.24,roughness:.16,side:T.DoubleSide,depthWrite:false});
-    const dark=material('#444465',.3),steel=material('#b4bfd2',.48),mint=material('#52b7ab'),violet=material('#7160a0');
-    const liquidMat=new T.MeshStandardMaterial({color:'#52bed1',transparent:true,opacity:.63,depthWrite:false,roughness:.24});
+    const glass=new T.MeshPhysicalMaterial({color:benchTheme.glass,transparent:true,opacity:.24,roughness:.16,side:T.DoubleSide,depthWrite:false});
+    const dark=material(benchTheme.metal,.3),steel=material('#b4bfd2',.48),mint=material('#52b7ab'),violet=material(benchTheme.accent);
+    const liquidMat=new T.MeshStandardMaterial({color:benchTheme.liquid,transparent:true,opacity:.63,depthWrite:false,roughness:.24});
     const saltMat=material('#fbfcff'), sampleMat=material('#e9b36a'), bubbleMat=material('#d0f7ff');
     function mesh(parent:T.Object3D,geometry:T.BufferGeometry,paint:T.Material,x=0,y=0,z=0){
       const object=new T.Mesh(geometry,paint);
@@ -73,14 +74,14 @@ export function GeneratedBench(props:Props){
     function vessel(parent:T.Object3D,profile:number[][]){
       return mesh(parent,new T.LatheGeometry(profile.map(([r,y])=>new T.Vector2(r,y)),40),glass);
     }
-    const tabletop=material('#66648d');
+    const tabletop=material(benchTheme.tabletop);
     const items=benchItems(tools,materials);
     const columns=Math.min(8,Math.max(4,Math.ceil(Math.sqrt(items.length*1.8))));
     const rows=Math.ceil(items.length/columns);
     const back=Math.max(4,1.25+rows*1.7);
     mesh(scene,box(13,.25,back+4),tabletop,0,-.13,(4-back)/2);
     for(const x of [-5.7,5.7])for(const z of [-back+.55,3.2])mesh(scene,box(.25,2.1,.25),dark,x,-1.2,z);
-    mesh(scene,box(30,.15,30),material('#c9c9df'),0,-2.32);
+    mesh(scene,box(30,.15,30),material(benchTheme.floor),0,-2.32);
     const matPaint=material('#d0e8e6');
     mesh(scene,box(5.3,.055,3.2),matPaint,0,.035,1.65);
     const working=new T.Group();working.position.set(0,.07,1.8);scene.add(working);
@@ -194,6 +195,14 @@ export function GeneratedBench(props:Props){
     });
     const ray=new T.Raycaster(), pointer=new T.Vector2();
     type Item=typeof apparatusMeshes[number];
+    // The built-in osmosis setup has two named samples and two matching beakers.
+    const potatoTrays=['Potato piece A','Potato piece B']
+      .map(name=>apparatusMeshes.find(item=>item.content==='solid'&&item.tag.textContent===name));
+    const osmosisCups=apparatusMeshes.filter(item=>item.label==='Two labelled beakers');
+    const osmosisBalance=apparatusMeshes.find(item=>item.label==='Balance');
+    const osmosisTowel=apparatusMeshes.find(item=>item.label==='Paper towel');
+    const potatoDemo=potatoTrays.every(Boolean)&&osmosisCups.length===2&&!!osmosisBalance&&!!osmosisTowel;
+    const potatoTarget=new T.Vector3();
     const canvas=renderer.domElement;
     const plane=new T.Plane(new T.Vector3(0,1,0),-.07);
     const hits=apparatusMeshes.map(item=>item.hit);
@@ -203,6 +212,8 @@ export function GeneratedBench(props:Props){
     const offset=new T.Vector3();
     const start=new T.Vector2();
     let drag:{id:number;item:Item;moved:boolean;target?:Item}|undefined;
+    let hovered:Item|undefined;
+    function clearHover(){hovered=undefined;}
     let checking=false,disposed=false,reaction:{item:Item;age:number}|undefined;
     let transfer:{from:Item;to:Item;age:number;amount:number;solid:boolean;origin:T.Vector3;before:number;received:number;spent?:boolean}|undefined;
     const onMat=(position:T.Vector3)=>Math.abs(position.x)<2.65&&position.z>.05&&position.z<3.25;
@@ -229,7 +240,12 @@ export function GeneratedBench(props:Props){
     }
     function move(event:PointerEvent){
       aim(event);
-      if(!drag){canvas.style.cursor=ray.intersectObjects(hits).length?'grab':'default';return;}
+      if(!drag){
+        const hit=ray.intersectObjects(hits)[0];
+        hovered=hit?byHit.get(hit.object):undefined;
+        canvas.style.cursor=hovered?'grab':'default';
+        return;
+      }
       if(drag.id!==event.pointerId||!ray.ray.intersectPlane(plane,point))return;
       if(!drag.moved&&start.distanceTo(new T.Vector2(event.clientX,event.clientY))<5)return;
       drag.moved=true;
@@ -276,6 +292,7 @@ export function GeneratedBench(props:Props){
     }
     canvas.addEventListener('pointerdown',down,true);
     canvas.addEventListener('pointermove',move);
+    canvas.addEventListener('pointerleave',clearHover);
     canvas.addEventListener('pointerup',end);
     canvas.addEventListener('pointercancel',end);
     canvas.addEventListener('lostpointercapture',end);
@@ -306,6 +323,7 @@ export function GeneratedBench(props:Props){
     const projected=new T.Vector3();
     let evaporation:{item:Item;initial:number}|undefined,crystalDish:Item|undefined;
     let seenView=live.current.viewReset,seenReset=live.current.benchReset,osmosisReset=-1;
+    let potatoStage:'weigh'|'immerse'|'wait'|'blot'|'reweigh'|'record'|undefined;
     function draw(now:number){
       frame=requestAnimationFrame(draw);
       const delta=last?Math.min(34,now-last):16;
@@ -318,6 +336,7 @@ export function GeneratedBench(props:Props){
         reaction=undefined;
         evaporation=undefined;
         crystalDish=undefined;
+        potatoStage=undefined;
         for(const item of apparatusMeshes){
           item.rest.copy(item.home);
           item.level=item.content==='liquid'?.42:0;
@@ -329,6 +348,15 @@ export function GeneratedBench(props:Props){
       if(result!==previous){
         previous=result;
         age=0;
+        if(potatoDemo&&result){
+          switch(result.operation){
+            case 'Measure': potatoStage=result.visual==='osmosis'?'reweigh':'weigh';break;
+            case 'Transfer': potatoStage='immerse';break;
+            case 'Wait': potatoStage='wait';break;
+            case 'Blot': potatoStage='blot';break;
+            case 'Record': potatoStage='record';break;
+          }
+        }
         if(result?.visual==='osmosis')osmosisReset=seenReset;
         if(result?.visual==='liquid')liquidInDish=(apparatus?.[result.tool]??apparatusIcon(result.tool))==='dish';
         if(result?.visual==='crystals'&&result.operation==='Wait'){
@@ -344,7 +372,7 @@ export function GeneratedBench(props:Props){
         evaporation.item.level=evaporation.initial*(1-cubic(progress));
         if(progress>=1)evaporation=undefined;
       }
-      const lookAtTool=result?.direct?undefined:result?.tool;
+      const lookAtTool=result?.direct||potatoStage?undefined:result?.tool;
       const flight=transfer?(reduced.matches?1:Math.min(1,(transfer.age+=delta)/1050)):0;
       const streamProgress=cubic(T.MathUtils.clamp((flight-.30)/.37,0,1));
       if(transfer){
@@ -357,6 +385,8 @@ export function GeneratedBench(props:Props){
           to.level=received+amount*streamProgress;
         }
       }
+      const potatoOnBench=!!potatoStage&&potatoStage!=='weigh';
+      const weighingPotatoes=potatoStage==='weigh'&&!drag&&!transfer&&!osmosisCups.some(item=>item.hasSolid);
       matPaint.color.set(drag?.moved&&onMat(grab)&&!drag.target?'#b4dfce':'#d0e8e6');
       for(const item of apparatusMeshes){
         const active=!!selected&&selected===item.label;
@@ -379,7 +409,8 @@ export function GeneratedBench(props:Props){
           item.object.rotation.z=T.MathUtils.lerp(item.object.rotation.z,
             playing*(result?.operation==='Transfer'?-.72:result?.operation==='Mix'?Math.sin(age/55)*.23:-.10),ease);
         }
-        item.displayLevel=T.MathUtils.lerp(item.displayLevel,item.level,ease);
+        const illustrativeFill=potatoOnBench&&osmosisCups.includes(item) ? .42 : 0;
+        item.displayLevel=T.MathUtils.lerp(item.displayLevel,Math.max(item.level,illustrativeFill),ease);
         if(item.fill&&item.shape){
           const height=item.displayLevel*item.shape[1];
           item.fill.visible=height>.006;
@@ -387,14 +418,16 @@ export function GeneratedBench(props:Props){
           item.fill.position.y=.05+height/2;
           item.fillPaint.color.copy(item.tint);
         }
-        item.solid.visible=item.hasSolid&&!(transfer?.solid&&transfer.from===item&&flight>=.32&&flight<.63);
-        if(result?.visual==='osmosis'&&item.label&&item.hasSolid&&seenReset===osmosisReset){
+        const stagedPotato=(potatoOnBench||weighingPotatoes)&&(potatoTrays.includes(item)||osmosisCups.includes(item));
+        const inFlight=transfer?.solid&&transfer.from===item&&flight>=.32&&flight<.63;
+        item.solid.visible=item.hasSolid&&!stagedPotato&&!inFlight;
+        if(!potatoDemo&&result?.visual==='osmosis'&&item.label&&item.hasSolid&&seenReset===osmosisReset){
           const index=apparatusMeshes.filter(row=>row.label===item.label).indexOf(item);
           item.solid.scale.setScalar(1+(index===1?-.23:.22)*cubic(progress));
         }else if(!item.hasSolid)item.solid.scale.setScalar(1);
       }
       const visual=result?.visual??'neutral';
-      const paired=(visual==='samples'||visual==='osmosis')&&!apparatusMeshes.some(item=>item.hasSolid);
+      const paired=!potatoDemo&&(visual==='samples'||visual==='osmosis')&&!apparatusMeshes.some(item=>item.hasSolid);
       const dry=visual==='crystals';
       const realLiquid=apparatusMeshes.some(item=>item.label&&item.level>.01);
       const pooled=(visual==='liquid'&&!realLiquid)||['bubbles','layers','precipitate'].includes(visual);
@@ -404,7 +437,7 @@ export function GeneratedBench(props:Props){
       processBeaker.position.x=paired?-.72:0;
       secondBeaker.visible=paired;
       secondBeaker.position.x=.72;
-      liquid=T.MathUtils.lerp(liquid,pooled||visual==='samples'?(dish?.11:.5):0,ease*.35);
+      liquid=T.MathUtils.lerp(liquid,pooled||paired&&visual==='samples'?(dish?.11:.5):0,ease*.35);
       volume.visible=liquid>.016;
       volume.scale.set(dish?1.67:1,Math.max(.01,liquid),dish?1.67:1);
       volume.position.set(paired?-.72:0,liquid/2+.03,0);
@@ -422,6 +455,34 @@ export function GeneratedBench(props:Props){
         if(visual==='precipitate')crystal.scale.multiplyScalar(.4);
       }
       for(const [i,specimen] of specimens.entries()){
+        if(potatoDemo){
+          const tray=potatoTrays[i]!,cup=osmosisCups[i];
+          const receivingSample=transfer?.solid&&transfer.to===cup&&flight<.63;
+          specimen.visible=(potatoOnBench||weighingPotatoes)&&!receivingSample;
+          const destination=potatoStage==='blot'?osmosisTowel!:
+            ['weigh','reweigh','record'].includes(potatoStage??'')?osmosisBalance!:cup;
+          potatoTarget.copy(destination.object.position).sub(working.position);
+          const onBalance=destination===osmosisBalance;
+          const onTowel=destination===osmosisTowel;
+          potatoTarget.x+=onBalance||onTowel?(i?.16:-.16):0;
+          potatoTarget.y+=onBalance?.46:onTowel?.18:.15;
+          if(!potatoStage||potatoStage==='weigh'){
+            const toScale=reduced.matches?0:Math.sin(Math.PI*Math.min(1,age/1800));
+            const x=tray.object.position.x-working.position.x;
+            const y=tray.object.position.y-working.position.y+.18;
+            const z=tray.object.position.z-working.position.z;
+            potatoTarget.set(T.MathUtils.lerp(x,potatoTarget.x,toScale),T.MathUtils.lerp(y,potatoTarget.y,toScale)+toScale*.20,
+              T.MathUtils.lerp(z,potatoTarget.z,toScale));
+          }else if(potatoStage==='immerse'&&result?.direct){
+            specimen.position.copy(potatoTarget);
+          }else if(['immerse','blot','reweigh'].includes(potatoStage)){
+            potatoTarget.y+=movement*.48;
+          }
+          specimen.position.lerp(potatoTarget,ease);
+          const change=potatoStage==='wait'?cubic(progress):potatoStage&&['blot','reweigh','record'].includes(potatoStage)?1:0;
+          specimen.scale.setScalar(.78*Math.cbrt(1+(i?-.08:.08)*change));
+          continue;
+        }
         specimen.visible=paired;
         specimen.position.set(i?.72:-.72,.18,0);
         specimen.scale.setScalar(visual==='osmosis'?1+(i?-.23:.22)*cubic(progress):1);
@@ -462,9 +523,16 @@ export function GeneratedBench(props:Props){
       const width=canvas.clientWidth,height=canvas.clientHeight;
       for(const item of apparatusMeshes){
         projected.copy(item.object.position);
-        projected.z+=.56;
-        projected.y+=.04;
+        projected.y+=item.height+.20;
+        const potatoIndex=potatoTrays.indexOf(item);
+        if(potatoIndex!==-1&&specimens[potatoIndex].visible){
+          projected.copy(specimens[potatoIndex].position).add(working.position);
+          projected.x+=potatoIndex?.36:-.36;
+          projected.y+=.30;
+        }
         projected.project(camera);
+        const highlighted=hovered===item||drag?.item===item||drag?.target===item||transfer?.to===item||!!item.label&&selected===item.label;
+        item.tag.classList.toggle('is-highlighted',highlighted);
         item.tag.style.visibility=Math.abs(projected.x)>1||Math.abs(projected.y)>1?'hidden':'visible';
         item.tag.style.transform='translate('+((projected.x+1)*width/2)+'px,'+((1-projected.y)*height/2)+'px) translate(-50%, -50%)';
       }
@@ -477,6 +545,7 @@ export function GeneratedBench(props:Props){
       resize.disconnect();
       canvas.removeEventListener('pointerdown',down,true);
       canvas.removeEventListener('pointermove',move);
+      canvas.removeEventListener('pointerleave',clearHover);
       canvas.removeEventListener('pointerup',end);
       canvas.removeEventListener('pointercancel',end);
       canvas.removeEventListener('lostpointercapture',end);
